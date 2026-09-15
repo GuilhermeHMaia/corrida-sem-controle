@@ -2,6 +2,9 @@ import { CONFIG, GestureInterpreter, CarPhysics, thresholdsFromCalibration } fro
 import { createWorld } from './scene.js';
 
 const $ = (id) => document.getElementById(id);
+// Calibração salva as medidas brutas (não os limiares), pra fórmula poder mudar sem invalidá-la.
+// v2: métrica passou a ser o dedo mais aberto — calibrações antigas não servem.
+const CALIB_KEY = 'volante.calibracao.v2';
 const world = createWorld($('game'));
 const gestures = new GestureInterpreter();
 const car = new CarPhysics();
@@ -84,21 +87,24 @@ $('calibrate').onclick = () => {
 function updateCalibration(now, frame) {
   if (!calib) return;
   const remaining = Math.ceil((calib.until - now) / 1000);
-  if (frame.hands.length === 2) for (const h of frame.hands) calib[calib.phase].push(h.openness);
+  // ignora o começo da fase (mão ainda em transição)
+  const settled = now > calib.until - 1900;
+  if (settled && frame.hands.length === 2) for (const h of frame.hands) calib[calib.phase].push(h.openness);
   $('calib-msg').hidden = false;
   $('calib-msg').textContent = calib.phase === 'open'
     ? `Segure o volante com as duas mãos abertas… ${remaining}`
-    : `Agora feche as duas mãos… ${remaining}`;
+    : `Agora feche as duas mãos por completo (punho)… ${remaining}`;
   if (now < calib.until) return;
   if (calib.phase === 'open') {
     calib.phase = 'closed';
     calib.until = now + 2500;
     return;
   }
-  const t = thresholdsFromCalibration(median(calib.open), median(calib.closed));
+  const sample = { open: median(calib.open), closed: median(calib.closed) };
+  const t = thresholdsFromCalibration(sample.open, sample.closed);
   if (t) {
     Object.assign(CONFIG.hand, t);
-    try { localStorage.setItem('volante.thresholds', JSON.stringify(t)); } catch {}
+    try { localStorage.setItem(CALIB_KEY, JSON.stringify(sample)); } catch {}
     $('calib-msg').textContent = 'Calibrado!';
   } else {
     $('calib-msg').textContent = 'Calibração falhou (mãos não detectadas ou pouca diferença). Tente de novo.';
@@ -115,8 +121,9 @@ function median(arr) {
 
 function loadThresholds() {
   try {
-    const t = JSON.parse(localStorage.getItem('volante.thresholds'));
-    if (t && t.closeBelow < t.openAbove) Object.assign(CONFIG.hand, t);
+    const s = JSON.parse(localStorage.getItem(CALIB_KEY));
+    const t = s && thresholdsFromCalibration(s.open, s.closed);
+    if (t) Object.assign(CONFIG.hand, t);
   } catch {}
 }
 

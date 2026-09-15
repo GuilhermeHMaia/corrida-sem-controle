@@ -2,8 +2,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CONFIG, GestureInterpreter, CarPhysics, classifyHand, shapeSteer,
-  wheelAngleDeg, thresholdsFromCalibration,
+  wheelAngleDeg, thresholdsFromCalibration, handOpenness,
 } from '../src/logic.js';
+
+// Mão sintética: pulso na origem, MCPs em y=1 (palma = 1), cada dedo dobrado ou esticado.
+function fakeHand(extended /* [indicador, médio, anelar, mínimo] */) {
+  const lm = Array.from({ length: 21 }, () => ({ x: 0, y: 0, z: 0 }));
+  const mcp = { 5: -0.3, 9: 0, 13: 0.3, 17: 0.55 };
+  for (const [i, x] of Object.entries(mcp)) lm[i] = { x, y: 1, z: 0 };
+  [8, 12, 16, 20].forEach((tip, k) => {
+    const x = mcp[tip - 3];
+    lm[tip] = extended[k] ? { x, y: 2, z: 0 } : { x: x * 0.5, y: 0.6, z: 0.15 };
+  });
+  return lm;
+}
 
 const O = 'open', C = 'closed';
 const DT = 1 / 60;
@@ -85,10 +97,22 @@ test('ângulo do volante: mão direita mais baixa = positivo (vira pra direita)'
   assert.equal(shapeSteer(-100), -CONFIG.steer.maxDeg);
 });
 
-test('calibração gera limiares entre fechada e aberta', () => {
+test('calibração gera limiares perto do punho (só 100% fechada conta)', () => {
   const t = thresholdsFromCalibration(1.3, 0.5);
   assert.ok(t.closeBelow > 0.5 && t.openAbove < 1.3 && t.closeBelow < t.openAbove);
+  assert.ok(t.closeBelow - 0.5 <= 0.15 * 0.8); // bem mais perto do punho que do aberto
   assert.equal(thresholdsFromCalibration(0.6, 0.55), null);
+});
+
+test('mão só fecha com os 4 dedos dobrados', () => {
+  const fist = handOpenness(fakeHand([false, false, false, false]));
+  const open = handOpenness(fakeHand([true, true, true, true]));
+  const t = thresholdsFromCalibration(open, fist);
+  assert.equal(classifyHand(fist, 'open', t), 'closed');
+  for (let k = 0; k < 4; k++) {
+    const oneOut = fakeHand([0, 1, 2, 3].map((i) => i === k));
+    assert.equal(classifyHand(handOpenness(oneOut), 'open', t), 'open', `dedo ${k} esticado`);
+  }
 });
 
 test('física: começa em 1ª, acelera até perto do teto e nunca passa', () => {

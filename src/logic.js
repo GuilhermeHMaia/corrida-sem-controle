@@ -18,9 +18,9 @@ export const CONFIG = {
     rampSeconds: 1.0, // chega a 100% em 1 s
   },
   hand: {
-    // razão (distância média ponta→centro da palma) / tamanho da palma
-    closeBelow: 0.7,
-    openAbove: 0.85,
+    // razão (distância do dedo MAIS aberto ao centro da palma) / tamanho da palma
+    closeBelow: 0.55,
+    openAbove: 0.75,
   },
   shiftConfirmMs: 200,
   steer: {
@@ -42,7 +42,10 @@ function dist(a, b) {
   return Math.hypot(dx, dy, dz);
 }
 
-/** Abertura normalizada pelo tamanho da palma (invariante à distância da câmera). */
+/**
+ * Abertura normalizada pelo tamanho da palma (invariante à distância da câmera).
+ * Usa o dedo MAIS aberto: a mão só conta como fechada com os 4 dedos dobrados.
+ */
 export function handOpenness(landmarks) {
   const c = { x: 0, y: 0, z: 0 };
   for (const i of PALM) {
@@ -52,9 +55,9 @@ export function handOpenness(landmarks) {
   }
   const palmSize = dist(landmarks[0], landmarks[9]);
   if (palmSize === 0) return 0;
-  let sum = 0;
-  for (const i of TIPS) sum += dist(landmarks[i], c);
-  return sum / TIPS.length / palmSize;
+  let max = 0;
+  for (const i of TIPS) max = Math.max(max, dist(landmarks[i], c));
+  return max / palmSize;
 }
 
 /** Histerese: só fecha abaixo de closeBelow, só reabre acima de openAbove. */
@@ -64,13 +67,16 @@ export function classifyHand(openness, prevState, cfg = CONFIG.hand) {
   return openness < (cfg.closeBelow + cfg.openAbove) / 2 ? 'closed' : 'open';
 }
 
-/** Limiares a partir de amostras de calibração (semiaberta conta como aberta). */
+/**
+ * Limiares a partir de amostras de calibração. "Fechada" só bem perto do punho
+ * calibrado (100% fechada); qualquer coisa acima disso conta como aberta/semiaberta.
+ */
 export function thresholdsFromCalibration(openValue, closedValue) {
   const gap = openValue - closedValue;
   if (!(gap > 0.1)) return null;
   return {
-    closeBelow: closedValue + 0.35 * gap,
-    openAbove: closedValue + 0.55 * gap,
+    closeBelow: closedValue + 0.12 * gap,
+    openAbove: closedValue + 0.3 * gap,
   };
 }
 

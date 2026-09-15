@@ -27,7 +27,8 @@ O carro acelera sozinho até o teto da marcha atual.
 
 - Pra trocar de novo, reabra a mão. Depois de frear, abra as duas mãos antes da próxima troca.
 - Com qualquer mão fechada ou fora do quadro, a direção fica travada no último ângulo.
-- **Calibre logo no início** (botão *Calibrar mãos* no painel da câmera): 2 s com as mãos abertas segurando o volante, 2 s fechadas. Os limiares ficam salvos no navegador.
+- Freio e troca de marcha só contam com a mão **100% fechada** (punho, os 4 dedos dobrados). Mão semiaberta segurando o volante conta como aberta.
+- **Calibre logo no início** (botão *Calibrar mãos* no painel da câmera): mãos abertas segurando o volante, depois punho totalmente fechado. A calibração fica salva no navegador.
 
 Modo teclado: `←`/`→` volante, `Q` mão esquerda fechada, `P` mão direita fechada, `Q+P` freio, `H` simula mão fora do quadro, `R` zera o carro.
 
