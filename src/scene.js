@@ -1,8 +1,11 @@
 // Cena 3D: pista em circuito, cenário, carro e câmera de perseguição.
 import * as THREE from 'three';
+import { resolveTreeCollision } from './logic.js';
 
 const ROAD_HALF_WIDTH = 8;
 const SAMPLES = 900;
+const CHECKPOINTS = 6; // índice 0 = largada/chegada
+const CAR_RADIUS = 1.6;
 
 export function createWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -33,7 +36,15 @@ export function createWorld(canvas) {
 
   const track = buildTrack();
   scene.add(track.mesh, track.lines);
-  scene.add(buildTrees(track.points));
+  const forest = buildTrees(track.points);
+  scene.add(forest.group);
+
+  const checkpoints = [];
+  for (let i = 0; i < CHECKPOINTS; i++) {
+    const p = track.curve.getPointAt(i / CHECKPOINTS);
+    checkpoints.push({ x: p.x, z: p.z });
+  }
+  scene.add(buildStartLine(track.curve));
 
   const car = buildCar();
   scene.add(car.group);
@@ -58,12 +69,14 @@ export function createWorld(canvas) {
   function step(dt, speedKmh, steerDeg, maxSteerDeg) {
     const v = speedKmh / 3.6;
     const steerNorm = steerDeg / maxSteerDeg;
-    // arcade: vira pouco parado, melhor em velocidade média, um pouco menos em alta
-    const yawRate = -steerNorm * 1.3 * Math.min(1, v / 8) * (1 - 0.35 * Math.min(1, v / 60));
+    // arcade: vira pouco parado (mas o suficiente pra desencostar de uma árvore),
+    // melhor em velocidade média, um pouco menos em alta
+    const yawRate = -steerNorm * 1.3 * Math.max(0.35, Math.min(1, v / 8)) * (1 - 0.35 * Math.min(1, v / 60));
     state.heading += yawRate * dt;
     state.x += Math.sin(state.heading) * v * dt;
     state.z += Math.cos(state.heading) * v * dt;
     state.wheelSpin += (v / 0.4) * dt;
+    const collided = resolveTreeCollision(state, forest.trees, CAR_RADIUS);
 
     car.group.position.set(state.x, 0, state.z);
     car.group.rotation.y = state.heading;
@@ -84,10 +97,60 @@ export function createWorld(canvas) {
     sun.target.position.set(state.x, 0, state.z);
 
     renderer.render(scene, camera);
-    return { offTrack: distanceToTrack(track.points, state.x, state.z) > ROAD_HALF_WIDTH + 1 };
+    return {
+      offTrack: distanceToTrack(track.points, state.x, state.z) > ROAD_HALF_WIDTH + 1,
+      collided,
+      x: state.x,
+      z: state.z,
+    };
   }
 
-  return { step };
+  return { step, checkpoints, checkpointRadius: ROAD_HALF_WIDTH + 6 };
+}
+
+function buildStartLine(curve) {
+  const group = new THREE.Group();
+  const p = curve.getPointAt(0);
+  const tan = curve.getTangentAt(0);
+  const heading = Math.atan2(tan.x, tan.z);
+
+  const tex = document.createElement('canvas');
+  tex.width = 64;
+  tex.height = 16;
+  const ctx = tex.getContext('2d');
+  for (let x = 0; x < 16; x++) {
+    for (let y = 0; y < 4; y++) {
+      ctx.fillStyle = (x + y) % 2 ? '#111' : '#f5f5f5';
+      ctx.fillRect(x * 4, y * 4, 4, 4);
+    }
+  }
+  const texture = new THREE.CanvasTexture(tex);
+  texture.magFilter = THREE.NearestFilter;
+  const strip = new THREE.Mesh(
+    new THREE.PlaneGeometry(ROAD_HALF_WIDTH * 2, 3),
+    new THREE.MeshLambertMaterial({ map: texture }),
+  );
+  strip.rotation.x = -Math.PI / 2;
+  strip.position.y = 0.05;
+  strip.receiveShadow = true;
+
+  const postGeo = new THREE.BoxGeometry(0.6, 7, 0.6);
+  const archMat = new THREE.MeshLambertMaterial({ color: 0x2b2f38 });
+  const postL = new THREE.Mesh(postGeo, archMat);
+  const postR = new THREE.Mesh(postGeo, archMat);
+  postL.position.set(ROAD_HALF_WIDTH + 1, 3.5, 0);
+  postR.position.set(-ROAD_HALF_WIDTH - 1, 3.5, 0);
+  const beam = new THREE.Mesh(
+    new THREE.BoxGeometry(ROAD_HALF_WIDTH * 2 + 2.6, 1.4, 0.6),
+    new THREE.MeshLambertMaterial({ map: texture }),
+  );
+  beam.position.y = 7;
+  for (const m of [postL, postR, beam]) m.castShadow = true;
+
+  group.add(strip, postL, postR, beam);
+  group.position.set(p.x, 0, p.z);
+  group.rotation.y = heading;
+  return group;
 }
 
 function buildTrack() {
@@ -145,19 +208,19 @@ function buildTrees(points) {
   const m = new THREE.Matrix4();
   let rnd = 12345;
   const rand = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647);
-  let placed = 0;
-  while (placed < COUNT) {
+  const trees = [];
+  while (trees.length < COUNT) {
     const x = -500 + rand() * 1100, z = -250 + rand() * 900;
     if (distanceToTrack(points, x, z) < ROAD_HALF_WIDTH + 6) continue;
     const s = 0.7 + rand() * 0.8;
     m.makeScale(s, s, s).setPosition(x, 1.5 * s, z);
-    trunks.setMatrixAt(placed, m);
+    trunks.setMatrixAt(trees.length, m);
     m.makeScale(s, s, s).setPosition(x, 6 * s, z);
-    leaves.setMatrixAt(placed, m);
-    placed++;
+    leaves.setMatrixAt(trees.length, m);
+    trees.push({ x, z, r: 0.6 * s }); // só o tronco colide; a copa fica acima do carro
   }
   group.add(trunks, leaves);
-  return group;
+  return { group, trees };
 }
 
 function buildCar() {

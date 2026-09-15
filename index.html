@@ -50,6 +50,21 @@
   #mode[data-mode="lost"], #mode[data-mode="hold"] { color: #9aa; }
   #offtrack { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); color: #ffb74d;
     font-weight: 700; font-size: 14px; }
+  #toast { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); padding: 8px 18px;
+    font-weight: 800; font-size: 20px; color: #ffd400; white-space: nowrap; }
+
+  #lap { position: absolute; top: 12px; left: 12px; padding: 10px 14px; min-width: 190px; }
+  #lap .lap-title { color: #99a; font-size: 12px; }
+  #lap-current { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  #lap dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 6px 0 0; font-size: 13px; }
+  #lap dt { color: #99a; }
+  #lap dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+  @media (max-width: 720px) {
+    #mode { top: 150px; }
+    #offtrack { top: 190px; }
+    #toast { top: 220px; }
+    #dash { transform: translateX(-50%) scale(0.8); transform-origin: bottom center; }
+  }
 
   #debug { position: fixed; top: 12px; right: 12px; width: 260px; padding: 8px; pointer-events: auto; }
   .cam-wrap { position: relative; width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: #000; }
@@ -58,12 +73,13 @@
   #debug dt { color: #99a; }
   #debug dd { margin: 0; font-variant-numeric: tabular-nums; }
   #debug dd[data-state="open"] { color: #3ddc84; }
+  #debug dd[data-state="partial"] { color: #ffb74d; }
   #debug dd[data-state="closed"] { color: #ff5252; }
   #calibrate { width: 100%; padding: 7px; font-size: 13px; }
   #calib-msg { position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); padding: 16px 22px;
     font-size: 20px; font-weight: 700; }
 
-  #keyboard-help { position: fixed; top: 12px; left: 12px; padding: 10px 14px; font-size: 13px; line-height: 1.6; }
+  #keyboard-help { position: fixed; bottom: 12px; left: 12px; padding: 10px 14px; font-size: 13px; line-height: 1.6; }
   kbd { background: #2b2f38; border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 12px; }
 </style>
 </head>
@@ -74,7 +90,8 @@
   <div class="panel">
     <h1>Volante Gestual</h1>
     <p>O carro acelera sozinho. Segure um volante imaginário com as duas mãos abertas pra virar.</p>
-    <p><b>Duas mãos fechadas</b>: freio. <b>Só a direita fechada</b>: sobe marcha. <b>Só a esquerda fechada</b>: desce marcha. Reabra a mão pra trocar de novo.</p>
+    <p><b>Duas mãos fechando</b>: freio — a partir de ~70% fechadas freia leve, punho total freia tudo. <b>Só a direita em punho</b>: sobe marcha. <b>Só a esquerda em punho</b>: desce marcha. Reabra a mão pra trocar de novo.</p>
+    <p>Complete a volta passando pelos checkpoints. Na grama o teto de velocidade cai pela metade. <kbd>M</kbd> liga/desliga o som.</p>
     <div class="buttons">
       <button id="start-camera">Usar câmera</button>
       <button id="start-keyboard" class="secondary">Modo teclado</button>
@@ -86,6 +103,16 @@
 <div id="hud" hidden>
   <div id="mode" class="panel">Volante</div>
   <div id="offtrack">Fora da pista</div>
+  <div id="toast" class="panel" hidden></div>
+  <div id="lap" class="panel">
+    <div class="lap-title">Volta <span id="lap-num">1</span></div>
+    <div id="lap-current">0:00.000</div>
+    <dl>
+      <dt>Melhor</dt><dd id="lap-best">--:--.---</dd>
+      <dt>Última</dt><dd id="lap-last">--:--.---</dd>
+      <dt>Checkpoints</dt><dd id="lap-cp">0/5</dd>
+    </dl>
+  </div>
   <div id="dash" class="panel">
     <div class="speed-box">
       <div><span id="speed">0</span> <span class="unit">km/h</span></div>
@@ -125,11 +152,11 @@
 
 <div id="keyboard-help" class="panel" hidden>
   <kbd>←</kbd> <kbd>→</kbd> girar volante<br>
-  <kbd>Q</kbd> mão esquerda fechada (desce)<br>
-  <kbd>P</kbd> mão direita fechada (sobe)<br>
-  <kbd>Q</kbd>+<kbd>P</kbd> freio<br>
+  <kbd>Q</kbd> punho esquerdo (desce) · <kbd>A</kbd> esquerda 80%<br>
+  <kbd>P</kbd> punho direito (sobe) · <kbd>L</kbd> direita 80%<br>
+  <kbd>Q</kbd>+<kbd>P</kbd> freio total · <kbd>A</kbd>+<kbd>L</kbd> freio leve<br>
   <kbd>H</kbd> simular mão fora do quadro<br>
-  <kbd>R</kbd> zerar carro
+  <kbd>R</kbd> zerar carro · <kbd>M</kbd> som
 </div>
 
 <script type="module" src="src/main.js"></script>

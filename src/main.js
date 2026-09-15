@@ -1,21 +1,29 @@
-import { CONFIG, GestureInterpreter, CarPhysics, thresholdsFromCalibration } from './logic.js';
+import {
+  CONFIG, GestureInterpreter, CarPhysics, LapTimer, isValidCalibration, formatLapTime,
+} from './logic.js';
 import { createWorld } from './scene.js';
+import { Sound } from './sound.js';
 
 const $ = (id) => document.getElementById(id);
-// Calibração salva as medidas brutas (não os limiares), pra fórmula poder mudar sem invalidá-la.
+// Calibração salva as medidas brutas {open, closed}, pra fórmula poder mudar sem invalidá-la.
 // v2: métrica passou a ser o dedo mais aberto — calibrações antigas não servem.
 const CALIB_KEY = 'volante.calibracao.v2';
+const BEST_KEY = 'volante.melhorVolta';
+
 const world = createWorld($('game'));
 const gestures = new GestureInterpreter();
 const car = new CarPhysics();
+const sound = new Sound();
+const laps = new LapTimer(world.checkpoints, world.checkpointRadius, loadNumber(BEST_KEY));
 
 let source = null; // 'camera' | 'keyboard'
 let tracker = null;
 let drawDebug = null;
 let lastFrame = null;
 let lastMs = performance.now();
+let offTrack = false;
 
-loadThresholds();
+loadCalibration();
 
 // ---------------------------------------------------------------------------
 // Entrada por teclado (simula as mãos pra testar sem câmera)
@@ -25,19 +33,23 @@ let keyAngle = 0;
 addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.code === 'KeyR') resetCar();
+  if (e.code === 'KeyM') toast(sound.toggleMute() ? 'Som desligado' : 'Som ligado');
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
+
+function keyboardHand(fistKey, partialKey) {
+  if (keys.has(fistKey)) return ['closed', 1];
+  if (keys.has(partialKey)) return ['partial', 0.8];
+  return ['open', 0.2];
+}
 
 function keyboardFrame(dt) {
   const target = (keys.has('ArrowRight') ? 30 : 0) - (keys.has('ArrowLeft') ? 30 : 0);
   keyAngle += (target - keyAngle) * (1 - Math.exp(-dt * 8));
   if (keys.has('KeyH')) return { left: null, right: 'open', angleDeg: null, hands: [] };
-  return {
-    left: keys.has('KeyQ') ? 'closed' : 'open',
-    right: keys.has('KeyP') ? 'closed' : 'open',
-    angleDeg: keyAngle,
-    hands: [],
-  };
+  const [left, leftClosure] = keyboardHand('KeyQ', 'KeyA');
+  const [right, rightClosure] = keyboardHand('KeyP', 'KeyL');
+  return { left, right, leftClosure, rightClosure, angleDeg: keyAngle, hands: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +57,7 @@ function keyboardFrame(dt) {
 
 $('start-keyboard').onclick = () => begin('keyboard');
 $('start-camera').onclick = async () => {
+  sound.start(); // precisa nascer do clique, antes do await
   $('start-status').textContent = 'Abrindo câmera e carregando modelo…';
   try {
     const mod = await import('./hands.js');
@@ -63,6 +76,7 @@ $('start-camera').onclick = async () => {
 };
 
 function begin(mode) {
+  sound.start();
   source = mode;
   $('start').hidden = true;
   $('hud').hidden = false;
@@ -77,7 +91,7 @@ function resetCar() {
 }
 
 // ---------------------------------------------------------------------------
-// Calibração: 2 s mãos abertas, 2 s fechadas
+// Calibração: mãos abertas, depois punho
 
 let calib = null;
 $('calibrate').onclick = () => {
@@ -85,7 +99,6 @@ $('calibrate').onclick = () => {
 };
 
 function updateCalibration(now, frame) {
-  if (!calib) return;
   const remaining = Math.ceil((calib.until - now) / 1000);
   // ignora o começo da fase (mão ainda em transição)
   const settled = now > calib.until - 1900;
@@ -101,9 +114,8 @@ function updateCalibration(now, frame) {
     return;
   }
   const sample = { open: median(calib.open), closed: median(calib.closed) };
-  const t = thresholdsFromCalibration(sample.open, sample.closed);
-  if (t) {
-    Object.assign(CONFIG.hand, t);
+  if (isValidCalibration(sample)) {
+    CONFIG.hand.calib = sample;
     try { localStorage.setItem(CALIB_KEY, JSON.stringify(sample)); } catch {}
     $('calib-msg').textContent = 'Calibrado!';
   } else {
@@ -119,12 +131,20 @@ function median(arr) {
   return s[Math.floor(s.length / 2)];
 }
 
-function loadThresholds() {
+function loadCalibration() {
   try {
     const s = JSON.parse(localStorage.getItem(CALIB_KEY));
-    const t = s && thresholdsFromCalibration(s.open, s.closed);
-    if (t) Object.assign(CONFIG.hand, t);
+    if (isValidCalibration(s)) CONFIG.hand.calib = { open: s.open, closed: s.closed };
   } catch {}
+}
+
+function loadNumber(key) {
+  try {
+    const v = Number(localStorage.getItem(key));
+    return v > 0 ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -144,29 +164,61 @@ function loop(now) {
   lastMs = now;
 
   let out = { mode: 'steer', steerDeg: gestures.steerDeg, braking: false, brakeFactor: 0, shift: 0 };
+  // antes do início e durante a calibração o mundo fica parado
+  let simDt = 0;
   if (source) {
     const frame = source === 'camera' ? tracker.poll(now) : keyboardFrame(dt);
     lastFrame = frame;
     if (calib) {
       updateCalibration(now, frame);
-      out = gestures.update({ left: null, right: null, angleDeg: null }, now, dt); // congela durante calibração
     } else {
+      simDt = dt;
       out = gestures.update(frame, now, dt);
-      car.update(dt, out);
+      car.update(dt, out, { offTrack });
+      if (out.shift) {
+        flashGear();
+        sound.shift();
+      }
     }
-    if (out.shift) flashGear();
   }
 
-  const { offTrack } = world.step(dt, car.speedKmh, out.steerDeg, CONFIG.steer.maxDeg);
-  if (source) renderHud(out, offTrack);
+  const res = world.step(simDt, car.speedKmh, out.steerDeg, CONFIG.steer.maxDeg);
+  offTrack = res.offTrack;
+  if (res.collided) {
+    if (car.speedKmh > 5) {
+      sound.crash();
+      toast('Bateu!');
+    }
+    car.speedKmh = 0;
+  }
+
+  if (simDt > 0) {
+    const ev = laps.update(simDt, res.x, res.z);
+    if (ev?.type === 'checkpoint') {
+      sound.chime();
+    } else if (ev?.type === 'lap') {
+      sound.chime(true);
+      if (ev.isBest) {
+        try { localStorage.setItem(BEST_KEY, String(ev.lapTime)); } catch {}
+        toast(`Nova melhor volta! ${formatLapTime(ev.lapTime)}`);
+      } else {
+        toast(`Volta ${formatLapTime(ev.lapTime)}`);
+      }
+    }
+  }
+
+  sound.updateEngine(car.speedKmh, car.ceilingKmh, car.gear);
+  if (source) renderHud(out);
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-function renderHud(out, offTrack) {
+const HAND_LABEL = { open: 'aberta', partial: 'freio', closed: 'punho' };
+
+function renderHud(out) {
   $('speed').textContent = Math.round(car.speedKmh);
   $('gear').textContent = car.gear;
-  $('ceiling').textContent = `teto ${car.ceilingKmh} km/h`;
+  $('ceiling').textContent = offTrack ? `teto ${car.ceilingKmh} km/h (grama)` : `teto ${car.ceilingKmh} km/h`;
   $('rpm-fill').style.width = `${Math.min(100, (car.speedKmh / car.ceilingKmh) * 100)}%`;
   $('brake-fill').style.width = `${out.brakeFactor * 100}%`;
   $('wheel').style.transform = `rotate(${out.steerDeg}deg)`;
@@ -174,15 +226,23 @@ function renderHud(out, offTrack) {
   $('mode').dataset.mode = out.mode;
   $('offtrack').hidden = !offTrack;
 
+  const n = laps.checkpoints.length;
+  $('lap-num').textContent = laps.lap;
+  $('lap-current').textContent = formatLapTime(laps.current);
+  $('lap-best').textContent = formatLapTime(laps.best);
+  $('lap-last').textContent = formatLapTime(laps.last);
+  $('lap-cp').textContent = laps.next === 0 ? 'rumo à chegada' : `${laps.next - 1}/${n - 1}`;
+
   if (source === 'camera' && lastFrame) {
     drawDebug($('cam-overlay').getContext('2d'), lastFrame);
-    const fmt = (h, s) => (h ? `${h.openness.toFixed(2)} ${s === 'closed' ? 'fechada' : 'aberta'}` : '—');
+    const fmt = (h, s) => (h ? `${Math.round(h.closure * 100)}% ${HAND_LABEL[s]}` : '—');
     $('dbg-left').textContent = fmt(lastFrame.leftHand, lastFrame.left);
     $('dbg-right').textContent = fmt(lastFrame.rightHand, lastFrame.right);
     $('dbg-left').dataset.state = lastFrame.left ?? '';
     $('dbg-right').dataset.state = lastFrame.right ?? '';
     $('dbg-angle').textContent = lastFrame.angleDeg == null ? '—' : `${lastFrame.angleDeg.toFixed(0)}°`;
-    $('dbg-thr').textContent = `fecha < ${CONFIG.hand.closeBelow.toFixed(2)} · abre > ${CONFIG.hand.openAbove.toFixed(2)}`;
+    const h = CONFIG.hand;
+    $('dbg-thr').textContent = `freio ≥ ${h.brakeStart * 100}% · punho ≥ ${h.fist * 100}%`;
   }
 }
 
@@ -192,4 +252,13 @@ function flashGear() {
   el.classList.add('flash');
   clearTimeout(gearTimer);
   gearTimer = setTimeout(() => el.classList.remove('flash'), 350);
+}
+
+let toastTimer = 0;
+function toast(text) {
+  const el = $('toast');
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2200);
 }

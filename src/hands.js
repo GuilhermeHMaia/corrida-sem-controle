@@ -1,6 +1,6 @@
 // Wrapper do MediaPipe Hand Landmarker + tradução pra estado esquerda/direita.
 import { FilesetResolver, HandLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
-import { CONFIG, handOpenness, classifyHand, wheelAngleDeg } from './logic.js';
+import { CONFIG, handOpenness, handClosure, classifyHand, wheelAngleDeg } from './logic.js';
 
 const WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
@@ -49,12 +49,14 @@ export class HandTracker {
     const hands = res.landmarks.map((lm, i) => {
       const cx = (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5;
       const cy = (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5;
+      const openness = handOpenness(res.worldLandmarks[i] ?? lm);
       return {
         landmarks: lm,
         raw: { x: cx, y: cy },
         // coordenadas de tela espelhada, em pixels (preserva proporção)
         screen: { x: (1 - cx) * W, y: cy * H },
-        openness: handOpenness(res.worldLandmarks[i] ?? lm),
+        openness,
+        closure: handClosure(openness, CONFIG.hand.calib),
       };
     });
 
@@ -64,8 +66,10 @@ export class HandTracker {
     frame.hands = hands;
     if (hands.length === 2) {
       const [l, r] = hands;
-      frame.left = classifyHand(l.openness, this.prev.left, CONFIG.hand);
-      frame.right = classifyHand(r.openness, this.prev.right, CONFIG.hand);
+      frame.left = classifyHand(l.closure, this.prev.left, CONFIG.hand);
+      frame.right = classifyHand(r.closure, this.prev.right, CONFIG.hand);
+      frame.leftClosure = l.closure;
+      frame.rightClosure = r.closure;
       frame.leftHand = l;
       frame.rightHand = r;
       frame.angleDeg = wheelAngleDeg(l.screen, r.screen);
@@ -76,7 +80,10 @@ export class HandTracker {
 }
 
 function emptyFrame() {
-  return { hands: [], left: null, right: null, leftHand: null, rightHand: null, angleDeg: null };
+  return {
+    hands: [], left: null, right: null, leftClosure: null, rightClosure: null,
+    leftHand: null, rightHand: null, angleDeg: null,
+  };
 }
 
 const CONNECTIONS = [
@@ -112,5 +119,5 @@ export function drawDebug(ctx, frame) {
 }
 
 export function stateColor(s) {
-  return s === 'open' ? '#3ddc84' : s === 'closed' ? '#ff5252' : '#aaa';
+  return { open: '#3ddc84', partial: '#ffb74d', closed: '#ff5252' }[s] ?? '#aaa';
 }
