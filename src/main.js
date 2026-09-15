@@ -9,6 +9,7 @@ const $ = (id) => document.getElementById(id);
 // v2: métrica passou a ser o dedo mais aberto — calibrações antigas não servem.
 const CALIB_KEY = 'volante.calibracao.v2';
 const BEST_KEY = 'volante.melhorVolta';
+const VIEW_KEY = 'volante.camera';
 
 const world = createWorld($('game'));
 const gestures = new GestureInterpreter();
@@ -24,6 +25,16 @@ let lastMs = performance.now();
 let offTrack = false;
 
 loadCalibration();
+try {
+  if (localStorage.getItem(VIEW_KEY) === 'chase') world.setView('chase');
+} catch {}
+
+function toggleView() {
+  const next = world.getView() === 'cockpit' ? 'chase' : 'cockpit';
+  world.setView(next);
+  try { localStorage.setItem(VIEW_KEY, next); } catch {}
+  toast(next === 'cockpit' ? 'Visão de dentro' : 'Visão de fora');
+}
 
 // ---------------------------------------------------------------------------
 // Entrada por teclado (simula as mãos pra testar sem câmera)
@@ -34,6 +45,7 @@ addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.code === 'KeyR') resetCar();
   if (e.code === 'KeyM') toast(sound.toggleMute() ? 'Som desligado' : 'Som ligado');
+  if (e.code === 'KeyC' && !e.repeat) toggleView();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 
@@ -163,7 +175,9 @@ function loop(now) {
   const dt = Math.min((now - lastMs) / 1000, CONFIG.maxDt);
   lastMs = now;
 
-  let out = { mode: 'steer', steerDeg: gestures.steerDeg, braking: false, brakeFactor: 0, shift: 0 };
+  let out = {
+    mode: 'steer', steerDeg: gestures.steerDeg, wheelDeg: gestures.wheelDeg, braking: false, brakeFactor: 0, shift: 0,
+  };
   // antes do início e durante a calibração o mundo fica parado
   let simDt = 0;
   if (source) {
@@ -182,7 +196,20 @@ function loop(now) {
     }
   }
 
-  const res = world.step(simDt, car.speedKmh, out.steerDeg, CONFIG.steer.maxDeg);
+  const res = world.step(simDt, car.speedKmh, out.steerDeg, CONFIG.steer.maxDeg, {
+    wheelDeg: out.wheelDeg,
+    hands: {
+      left: handInfo(lastFrame, 'left'),
+      right: handInfo(lastFrame, 'right'),
+    },
+    shift: out.shift,
+    braking: out.braking,
+    brakeFactor: out.brakeFactor,
+    speedKmh: car.speedKmh,
+    gear: car.gear,
+    ceilingKmh: car.ceilingKmh,
+    offTrack,
+  });
   offTrack = res.offTrack;
   if (res.collided) {
     if (car.speedKmh > 5) {
@@ -213,9 +240,18 @@ function loop(now) {
 }
 requestAnimationFrame(loop);
 
+function handInfo(frame, side) {
+  // antes de começar, luvas abertas no volante
+  if (!frame) return { state: 'open', closure: 0.1 };
+  const state = frame[side];
+  return state ? { state, closure: frame[`${side}Closure`] ?? 0 } : null;
+}
+
 const HAND_LABEL = { open: 'aberta', partial: 'freio', closed: 'punho' };
 
 function renderHud(out) {
+  // na visão de dentro, velocidade/marcha/freio estão no display do volante
+  $('dash').hidden = world.getView() === 'cockpit';
   $('speed').textContent = Math.round(car.speedKmh);
   $('gear').textContent = car.gear;
   $('ceiling').textContent = offTrack ? `teto ${car.ceilingKmh} km/h (grama)` : `teto ${car.ceilingKmh} km/h`;

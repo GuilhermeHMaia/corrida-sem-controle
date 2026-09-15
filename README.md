@@ -22,6 +22,15 @@ Faça a volta mais rápida. A volta só conta passando pelos 5 checkpoints em or
 - **Árvores:** bater para o carro.
 - **Som:** motor acompanha a velocidade dentro da marcha, "clack" na troca, sinal nos checkpoints. `M` liga/desliga.
 
+## Visão de dentro
+
+O jogo começa com a câmera no banco do motorista (`C` alterna com a visão de fora; a escolha fica salva).
+
+- O volante na tela gira **1:1 com o ângulo das suas mãos** (sem zona morta); o carro continua esterçando pela regra normal. Durante freio/troca ele trava junto com a direção.
+- As **luvas** no aro abrem e fecham acompanhando suas mãos: verdes abertas, laranja na zona de freio, vermelhas em punho. Somem se a mão sair do quadro.
+- As **borboletas** atrás do volante acendem na troca: direita sobe, esquerda desce.
+- Velocidade, marcha, rotação e freio ficam no **display do volante**.
+
 ## Controles
 
 O carro acelera sozinho até o teto da marcha atual.
@@ -38,7 +47,7 @@ O carro acelera sozinho até o teto da marcha atual.
 - Durante freio, troca ou mão fora do quadro, a direção fica travada no último ângulo.
 - **Calibre logo no início** (botão *Calibrar mãos* no painel da câmera): mãos abertas segurando o volante, depois punho totalmente fechado. O painel mostra o fechamento de cada mão em % (verde aberta, laranja zona de freio, vermelho punho).
 
-Modo teclado: `←`/`→` volante, `Q`/`P` punho esquerdo/direito, `A`/`L` mão esquerda/direita 80% fechada, `Q+P` freio total, `A+L` freio leve, `H` simula mão fora do quadro, `R` zera o carro, `M` som.
+Modo teclado: `←`/`→` volante, `Q`/`P` punho esquerdo/direito, `A`/`L` mão esquerda/direita 80% fechada, `Q+P` freio total, `A+L` freio leve, `H` simula mão fora do quadro, `R` zera o carro, `M` som, `C` câmera.
 
 ## Ajustes
 
@@ -48,7 +57,8 @@ Tudo em `CONFIG` no topo de `src/logic.js`: tetos e taxas das marchas, força do
 
 - `src/logic.js` — mãos, gestos, física, colisão, voltas (puro, testável)
 - `src/hands.js` — MediaPipe Hand Landmarker
-- `src/scene.js` — pista, largada, árvores, carro, câmera
+- `src/scene.js` — pista, largada, árvores, carro, câmeras
+- `src/cockpit.js` — interior, volante com display, borboletas, luvas
 - `src/sound.js` — sons sintetizados (Web Audio)
 - `src/main.js` — loop, HUD, calibração, teclado
 

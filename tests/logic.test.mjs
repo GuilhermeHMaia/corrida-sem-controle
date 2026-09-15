@@ -104,6 +104,17 @@ test('direção atualiza com mãos abertas (ou uma apertando), trava no freio/tr
   assert.ok(d.at(-1).steerDeg < 0);
 });
 
+test('volante visual segue as mãos 1:1 (sem zona morta), trava junto com a direção', () => {
+  const gi = new GestureInterpreter();
+  const a = run(gi, [[O, O, 500, 30]]);
+  assert.ok(Math.abs(a.at(-1).wheelDeg - 30) < 0.01); // carro usa 26 (zona morta), volante mostra 30
+  assert.ok(Math.abs(a.at(-1).steerDeg - 26) < 0.1);
+  const b = run(gi, [[C, C, 300, -60]], 1000);
+  assert.ok(Math.abs(b.at(-1).wheelDeg - 30) < 0.01);
+  const c = run(gi, [[O, O, 500, 200]], 2000);
+  assert.ok(Math.abs(c.at(-1).wheelDeg - CONFIG.steer.wheelMaxDeg) < 0.01);
+});
+
 test('classificação em 3 níveis com histerese', () => {
   assert.equal(classifyHand(0.5, 'open'), 'open');
   assert.equal(classifyHand(0.72, 'open'), 'partial');

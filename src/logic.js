@@ -30,6 +30,9 @@ export const CONFIG = {
     deadZoneDeg: 4,
     maxDeg: 45,
     smoothingTau: 0.08, // constante de tempo da EMA, em segundos
+    // volante desenhado no cockpit: segue o ângulo das mãos 1:1 (sem zona morta)
+    wheelMaxDeg: 90,
+    wheelSmoothingTau: 0.04,
   },
   offTrack: {
     ceilingFactor: 0.5, // na grama o teto da marcha cai pela metade
@@ -125,6 +128,7 @@ export class GestureInterpreter {
   constructor(cfg = CONFIG) {
     this.cfg = cfg;
     this.steerDeg = 0;
+    this.wheelDeg = 0; // ângulo visual do volante (1:1 com as mãos)
     this.shiftArmed = true;
     this.pending = null; // { dir, since }
   }
@@ -172,13 +176,15 @@ export class GestureInterpreter {
       this.pending = null;
       if (left === 'open' && right === 'open') this.shiftArmed = true;
       if (input.angleDeg != null) {
-        const target = shapeSteer(input.angleDeg, this.cfg.steer);
-        const k = 1 - Math.exp(-dt / this.cfg.steer.smoothingTau);
-        this.steerDeg += (target - this.steerDeg) * k;
+        const s = this.cfg.steer;
+        const target = shapeSteer(input.angleDeg, s);
+        this.steerDeg += (target - this.steerDeg) * (1 - Math.exp(-dt / s.smoothingTau));
+        const wheelTarget = Math.max(-s.wheelMaxDeg, Math.min(s.wheelMaxDeg, input.angleDeg));
+        this.wheelDeg += (wheelTarget - this.wheelDeg) * (1 - Math.exp(-dt / s.wheelSmoothingTau));
       }
     }
 
-    return { mode, steerDeg: this.steerDeg, braking, brakeFactor, shift };
+    return { mode, steerDeg: this.steerDeg, wheelDeg: this.wheelDeg, braking, brakeFactor, shift };
   }
 }
 

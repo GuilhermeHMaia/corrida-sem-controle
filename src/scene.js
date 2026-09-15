@@ -1,6 +1,7 @@
-// Cena 3D: pista em circuito, cenário, carro e câmera de perseguição.
+// Cena 3D: pista em circuito, cenário, carro e câmeras (cockpit e perseguição).
 import * as THREE from 'three';
 import { resolveTreeCollision } from './logic.js';
+import { buildCockpit, EYE } from './cockpit.js';
 
 const ROAD_HALF_WIDTH = 8;
 const SAMPLES = 900;
@@ -16,7 +17,7 @@ export function createWorld(canvas) {
   scene.background = new THREE.Color(0x9fd3ff);
   scene.fog = new THREE.Fog(0x9fd3ff, 120, 650);
 
-  const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 2000);
+  const camera = new THREE.PerspectiveCamera(65, 1, 0.05, 2000);
 
   scene.add(new THREE.HemisphereLight(0xdff1ff, 0x4a6b3a, 1.1));
   const sun = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -48,6 +49,9 @@ export function createWorld(canvas) {
 
   const car = buildCar();
   scene.add(car.group);
+  const cockpit = buildCockpit();
+  car.group.add(cockpit.group);
+  let view = 'cockpit'; // 'cockpit' | 'chase'
 
   const onResize = () => {
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -65,8 +69,10 @@ export function createWorld(canvas) {
   camera.position.set(state.x - Math.sin(state.heading) * 10, 5, state.z - Math.cos(state.heading) * 10);
 
   const camTarget = new THREE.Vector3();
+  const LOOK_LOCAL = new THREE.Vector3(0, 1.05, 6);
+  let shakeTime = 0;
 
-  function step(dt, speedKmh, steerDeg, maxSteerDeg) {
+  function step(dt, speedKmh, steerDeg, maxSteerDeg, cockpitInfo) {
     const v = speedKmh / 3.6;
     const steerNorm = steerDeg / maxSteerDeg;
     // arcade: vira pouco parado (mas o suficiente pra desencostar de uma árvore),
@@ -84,13 +90,32 @@ export function createWorld(canvas) {
     for (const w of car.frontPivots) w.rotation.y = -steerNorm * 0.5;
     for (const w of car.wheels) w.rotation.x = state.wheelSpin;
 
-    const fx = Math.sin(state.heading), fz = Math.cos(state.heading);
-    const back = 9 + v * 0.04;
-    const desired = new THREE.Vector3(state.x - fx * back, 3.6 + v * 0.01, state.z - fz * back);
-    camera.position.lerp(desired, 1 - Math.exp(-dt * 5));
-    camTarget.set(state.x + fx * 6, 1.2, state.z + fz * 6);
-    camera.lookAt(camTarget);
-    camera.fov = 62 + Math.min(18, v * 0.25);
+    cockpit.group.visible = view === 'cockpit';
+    for (const m of car.shell) m.visible = view !== 'cockpit';
+    if (cockpitInfo) cockpit.update(dt, cockpitInfo);
+
+    if (view === 'cockpit') {
+      car.group.updateMatrixWorld();
+      // tremor leve que cresce com a velocidade
+      shakeTime += dt;
+      const shake = Math.min(1, v / 55) * 0.006;
+      const eye = EYE.clone();
+      eye.x += Math.sin(shakeTime * 37) * shake;
+      eye.y += Math.sin(shakeTime * 53 + 1.3) * shake;
+      camera.position.copy(car.group.localToWorld(eye));
+      camera.up.set(0, 1, 0).applyQuaternion(car.group.quaternion);
+      camera.lookAt(car.group.localToWorld(camTarget.copy(LOOK_LOCAL)));
+      camera.fov = 68 + Math.min(16, v * 0.22);
+    } else {
+      const fx = Math.sin(state.heading), fz = Math.cos(state.heading);
+      const back = 9 + v * 0.04;
+      const desired = new THREE.Vector3(state.x - fx * back, 3.6 + v * 0.01, state.z - fz * back);
+      camera.position.lerp(desired, 1 - Math.exp(-dt * 5));
+      camera.up.set(0, 1, 0);
+      camTarget.set(state.x + fx * 6, 1.2, state.z + fz * 6);
+      camera.lookAt(camTarget);
+      camera.fov = 62 + Math.min(18, v * 0.25);
+    }
     camera.updateProjectionMatrix();
 
     sun.position.set(state.x + 80, 140, state.z + 40);
@@ -105,7 +130,15 @@ export function createWorld(canvas) {
     };
   }
 
-  return { step, checkpoints, checkpointRadius: ROAD_HALF_WIDTH + 6 };
+  function setView(v) {
+    view = v;
+    if (v === 'chase') {
+      // evita a câmera "voar" de dentro do carro até a posição de perseguição
+      camera.position.set(state.x - Math.sin(state.heading) * 9, 3.6, state.z - Math.cos(state.heading) * 9);
+    }
+  }
+
+  return { step, setView, getView: () => view, checkpoints, checkpointRadius: ROAD_HALF_WIDTH + 6 };
 }
 
 function buildStartLine(curve) {
@@ -248,7 +281,7 @@ function buildCar() {
     wheels.push(w);
     if (front) frontPivots.push(pivot);
   }
-  return { group, wheels, frontPivots };
+  return { group, wheels, frontPivots, shell: [body, cabin, spoiler] };
 }
 
 function distanceToTrack(points, x, z) {
