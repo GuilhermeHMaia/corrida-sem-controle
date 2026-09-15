@@ -3,7 +3,10 @@
 // Coordenadas locais do carro: +z = frente, +y = cima, +x = esquerda do motorista.
 import * as THREE from 'three';
 
-export const EYE = new THREE.Vector3(0, 1.34, -0.25);
+// Olho alto e volante/painel baixos: a pista ocupa a maior parte da tela e só a
+// metade de cima do volante aparece no pé da tela (como num simulador).
+export const EYE = new THREE.Vector3(0, 1.45, -0.25);
+export const LOOK = new THREE.Vector3(0, 0.6, 6); // olhar ~8° pra baixo: mais pista, menos céu
 
 const STATE_COLOR = {
   open: new THREE.Color(0x3ddc84),
@@ -11,7 +14,7 @@ const STATE_COLOR = {
   closed: new THREE.Color(0xff5252),
 };
 const GLOVE_BASE = new THREE.Color(0x2a2d33);
-const RIM_RADIUS = 0.19;
+const RIM_RADIUS = 0.18;
 
 export function buildCockpit() {
   const group = new THREE.Group();
@@ -19,36 +22,36 @@ export function buildCockpit() {
   const carbon = new THREE.MeshLambertMaterial({ color: 0x26282e });
 
   // painel
-  const dash = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.24, 0.6), dark);
-  dash.position.set(0, 1.05, 0.85);
+  const dash = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.2, 0.35), dark);
+  dash.position.set(0, 0.9, 0.78);
   // capa do painel atrás do volante
-  const binnacle = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.25), carbon);
-  binnacle.position.set(0, 1.2, 0.7);
+  const binnacle = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.2), carbon);
+  binnacle.position.set(0, 1.02, 0.72);
   // na visão de dentro a lataria externa fica oculta; o cockpit tem capô, portas e assoalho próprios
-  const hood = new THREE.Mesh(new THREE.BoxGeometry(2, 0.3, 1.25), new THREE.MeshLambertMaterial({ color: 0xd62828 }));
-  hood.position.set(0, 0.95, 1.5);
+  // capô baixo e curto: só uma borda vermelha acima do painel, sem tampar a pista
+  const hood = new THREE.Mesh(new THREE.BoxGeometry(2, 0.2, 0.65), new THREE.MeshLambertMaterial({ color: 0xd62828 }));
+  hood.position.set(0, 0.78, 1.27);
   const floor = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.05, 2.4), dark);
   floor.position.set(0, 0.55, -0.2);
   group.add(dash, binnacle, hood, floor);
   for (const side of [1, -1]) {
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.62, 2), carbon);
-    door.position.set(0.9 * side, 0.86, -0.15);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 2), carbon);
+    door.position.set(0.92 * side, 0.8, -0.15);
     group.add(door);
   }
 
-  // colunas do para-brisa, moldura superior e teto
+  // colunas do para-brisa finas e bem abertas; teto recuado, fora da vista
   for (const side of [1, -1]) {
-    group.add(beam(new THREE.Vector3(0.84 * side, 1.16, 0.8), new THREE.Vector3(0.72 * side, 1.64, 0.22), 0.07, dark));
-    group.add(beam(new THREE.Vector3(0.86 * side, 1.16, 0.8), new THREE.Vector3(0.86 * side, 1.16, -0.9), 0.06, dark));
+    group.add(beam(new THREE.Vector3(0.96 * side, 0.98, 0.92), new THREE.Vector3(0.84 * side, 1.74, 0.05), 0.045, dark));
   }
-  group.add(beam(new THREE.Vector3(0.74, 1.64, 0.22), new THREE.Vector3(-0.74, 1.64, 0.22), 0.07, dark));
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.04, 1.6), dark);
-  roof.position.set(0, 1.68, -0.58);
+  group.add(beam(new THREE.Vector3(0.84, 1.74, 0.05), new THREE.Vector3(-0.84, 1.74, 0.05), 0.05, dark));
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.04, 1.4), dark);
+  roof.position.set(0, 1.76, -0.65);
   group.add(roof);
 
   // volante: pivô inclinado (coluna) → grupo que gira
   const column = new THREE.Group();
-  column.position.set(0, 1.16, 0.38);
+  column.position.set(0, 1.02, 0.42);
   column.rotation.x = 0.38;
   const wheel = new THREE.Group();
   column.add(wheel);

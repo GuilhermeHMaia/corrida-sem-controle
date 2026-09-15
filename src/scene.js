@@ -1,7 +1,7 @@
 // Cena 3D: pista em circuito, cenário, carro e câmeras (cockpit e perseguição).
 import * as THREE from 'three';
 import { resolveTreeCollision } from './logic.js';
-import { buildCockpit, EYE } from './cockpit.js';
+import { buildCockpit, EYE, LOOK } from './cockpit.js';
 
 const ROAD_HALF_WIDTH = 8;
 const SAMPLES = 900;
@@ -69,7 +69,7 @@ export function createWorld(canvas) {
   camera.position.set(state.x - Math.sin(state.heading) * 10, 5, state.z - Math.cos(state.heading) * 10);
 
   const camTarget = new THREE.Vector3();
-  const LOOK_LOCAL = new THREE.Vector3(0, 1.05, 6);
+  let seatOffset = 0; // ajuste de altura do banco (↑/↓)
   let shakeTime = 0;
 
   function step(dt, speedKmh, steerDeg, maxSteerDeg, cockpitInfo) {
@@ -100,12 +100,15 @@ export function createWorld(canvas) {
       shakeTime += dt;
       const shake = Math.min(1, v / 55) * 0.006;
       const eye = EYE.clone();
+      eye.y += seatOffset;
       eye.x += Math.sin(shakeTime * 37) * shake;
       eye.y += Math.sin(shakeTime * 53 + 1.3) * shake;
       camera.position.copy(car.group.localToWorld(eye));
       camera.up.set(0, 1, 0).applyQuaternion(car.group.quaternion);
-      camera.lookAt(car.group.localToWorld(camTarget.copy(LOOK_LOCAL)));
-      camera.fov = 68 + Math.min(16, v * 0.22);
+      camTarget.copy(LOOK);
+      camTarget.y += seatOffset;
+      camera.lookAt(car.group.localToWorld(camTarget));
+      camera.fov = 62 + Math.min(12, v * 0.18);
     } else {
       const fx = Math.sin(state.heading), fz = Math.cos(state.heading);
       const back = 9 + v * 0.04;
@@ -138,7 +141,16 @@ export function createWorld(canvas) {
     }
   }
 
-  return { step, setView, getView: () => view, checkpoints, checkpointRadius: ROAD_HALF_WIDTH + 6 };
+  /** Sobe/desce o banco; limitado pra não atravessar teto nem painel. Retorna o valor aplicado. */
+  function setSeatOffset(value) {
+    seatOffset = Math.max(-0.12, Math.min(0.2, value));
+    return seatOffset;
+  }
+
+  return {
+    step, setView, getView: () => view, setSeatOffset, getSeatOffset: () => seatOffset,
+    checkpoints, checkpointRadius: ROAD_HALF_WIDTH + 6,
+  };
 }
 
 function buildStartLine(curve) {

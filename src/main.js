@@ -25,9 +25,18 @@ let lastMs = performance.now();
 let offTrack = false;
 
 loadCalibration();
+const SEAT_KEY = 'volante.banco';
 try {
   if (localStorage.getItem(VIEW_KEY) === 'chase') world.setView('chase');
+  world.setSeatOffset(Number(localStorage.getItem(SEAT_KEY)) || 0);
 } catch {}
+
+function adjustSeat(delta) {
+  if (world.getView() !== 'cockpit') return;
+  const v = world.setSeatOffset(world.getSeatOffset() + delta);
+  try { localStorage.setItem(SEAT_KEY, String(v)); } catch {}
+  toast(`Banco ${v >= 0 ? '+' : ''}${Math.round(v * 100)} cm`);
+}
 
 function toggleView() {
   const next = world.getView() === 'cockpit' ? 'chase' : 'cockpit';
@@ -46,6 +55,8 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') resetCar();
   if (e.code === 'KeyM') toast(sound.toggleMute() ? 'Som desligado' : 'Som ligado');
   if (e.code === 'KeyC' && !e.repeat) toggleView();
+  if (e.code === 'ArrowUp') adjustSeat(+0.02);
+  if (e.code === 'ArrowDown') adjustSeat(-0.02);
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 
