@@ -31,6 +31,10 @@ No menu (`Esc` a qualquer momento):
 | Serra | Curva atrás de curva, marchas baixas |
 | Anel Rápido | Curvas longas e abertas, quase tudo em 6ª |
 
+Antes de cada corrida aparece a **prévia da pista**: mapa do traçado com a largada marcada, extensão, número de voltas, sua melhor volta e os adversários. A escolha de pista também mostra uma miniatura de cada traçado.
+
+Durante a corrida, o **minimapa** no canto direito mostra o traçado com norte pra cima, seu carro em amarelo e cada adversário na cor dele.
+
 ### Regras da pista
 
 - A volta só conta passando pelos 5 checkpoints em ordem e voltando à largada. A melhor volta de cada pista fica salva.
@@ -83,6 +87,7 @@ O resto (tetos e taxas das marchas, `fullBrakeAt`, fator da grama) fica em `CONF
 - `src/logic.js` — mãos, gestos, física, colisão, voltas (puro, testável)
 - `src/race.js` — adversários, classificação, largada e campeonato (puro, testável)
 - `src/tracks.js` — as 4 pistas (traçado e cenário)
+- `src/map.js` — projeção do traçado pro mapa da prévia e pro minimapa (puro, testável)
 - `src/hands.js` — MediaPipe Hand Landmarker
 - `src/scene.js` — pistas, largada, árvores, carros, câmeras
 - `src/cockpit.js` — interior, volante com display, borboletas, luvas

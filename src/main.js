@@ -1,7 +1,8 @@
 import {
   CONFIG, GestureInterpreter, CarPhysics, LapTimer, isValidCalibration, formatLapTime,
 } from './logic.js';
-import { createWorld } from './scene.js';
+import { createWorld, trackOutline } from './scene.js';
+import { projectTrack } from './map.js';
 import { Sound } from './sound.js';
 import { TRACKS, trackById } from './tracks.js';
 import { Race, Championship, OPPONENTS, RACE_LAPS, pointsFor } from './race.js';
@@ -33,6 +34,7 @@ let track = null; // definição da pista atual
 let trackInfo = null;
 let race = null; // null no treino livre
 let laps = null;
+let minimap = null; // projeção da pista atual pro minimapa
 let championship = new Championship(TRACKS.map((t) => t.id), loadJson(KEYS.champ));
 
 loadCalibration();
@@ -157,7 +159,7 @@ $('ajustes-calib').onclick = () => {
 
 function showScreen(name) {
   screen = name;
-  for (const id of ['start', 'menu', 'tracks', 'results', 'ajustes']) $(id).hidden = id !== name;
+  for (const id of ['start', 'menu', 'tracks', 'prerace', 'results', 'ajustes']) $(id).hidden = id !== name;
   $('hud').hidden = !(name === null && source);
   $('debug').hidden = !(source === 'camera' && name === null);
 }
@@ -203,7 +205,7 @@ function openMenu() {
   showScreen('menu');
 }
 
-$('btn-champ').onclick = () => startRace(trackById(championship.currentTrackId), 'champ');
+$('btn-champ').onclick = () => openPreRace(trackById(championship.currentTrackId), 'champ');
 $('btn-champ-reset').onclick = () => {
   championship = new Championship(TRACKS.map((t) => t.id));
   try { localStorage.removeItem(KEYS.champ); } catch {}
@@ -215,9 +217,9 @@ $('btn-ajustes').onclick = () => showScreen('ajustes');
 $('tracks-back').onclick = () => openMenu();
 $('results-menu').onclick = () => openMenu();
 $('results-next').onclick = () => {
-  if (mode === 'champ' && !championship.done) startRace(trackById(championship.currentTrackId), 'champ');
+  if (mode === 'champ' && !championship.done) openPreRace(trackById(championship.currentTrackId), 'champ');
   else if (mode === 'champ') openMenu();
-  else startRace(track, mode);
+  else openPreRace(track, mode);
 };
 
 function openTrackPicker(kind) {
@@ -229,16 +231,67 @@ function openTrackPicker(kind) {
     const best = loadNumber(KEYS.best(t.id));
     const item = document.createElement('div');
     item.className = 'menu-item';
-    item.innerHTML = `<div><div class="t">${t.name}</div><div class="d">${t.description}</div>
+    item.innerHTML = `${mapSvg(t, 54, 'track-thumb')}
+      <div style="flex:1"><div class="t">${t.name}</div><div class="d">${t.description}</div>
       <div class="d">melhor volta: ${best ? formatLapTime(best) : '—'}</div></div>`;
     const btn = document.createElement('button');
-    btn.textContent = 'Correr';
-    btn.onclick = () => startRace(t, kind);
+    btn.textContent = 'Escolher';
+    btn.onclick = () => openPreRace(t, kind);
     item.appendChild(btn);
     list.appendChild(item);
   }
   showScreen('tracks');
 }
+
+/** Desenho do traçado como SVG (miniaturas do menu e mapa da prévia). */
+function mapSvg(def, size, className = '') {
+  const { path } = projectTrack(trackOutline(def), size, size * 0.08);
+  return `<svg class="${className}" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+    <path d="${path}" fill="none" stroke="#3b3f45" stroke-width="${size * 0.075}" stroke-linejoin="round"/>
+    <path d="${path}" fill="none" stroke="#8a93a0" stroke-width="${size * 0.012}" stroke-dasharray="3 5"/>
+  </svg>`;
+}
+
+// ---------------------------------------------------------------------------
+// Prévia da pista (mapa antes de largar)
+
+let pending = null; // { def, kind }
+
+function openPreRace(def, kind) {
+  pending = { def, kind };
+  mode = kind;
+  const outline = trackOutline(def);
+  const { path, project } = projectTrack(outline, 220, 16);
+  const [sx, sy] = project(outline[0].x, outline[0].z);
+  $('prerace-map').innerHTML = `
+    <path d="${path}" fill="none" stroke="#3b3f45" stroke-width="15" stroke-linejoin="round"/>
+    <path d="${path}" fill="none" stroke="#f5f5f5" stroke-width="1.5" stroke-dasharray="5 7"/>
+    <circle cx="${sx}" cy="${sy}" r="6" fill="#ffd400"/>
+    <text x="${sx + 10}" y="${sy + 4}" fill="#ffd400" font-size="11" font-family="system-ui">largada</text>`;
+  $('prerace-name').textContent = def.name;
+  $('prerace-desc').textContent = def.description;
+  $('prerace-race').textContent = kind === 'champ'
+    ? `${championship.raceIndex + 1} de ${TRACKS.length} do campeonato`
+    : (kind === 'practice' ? 'Treino livre' : 'Corrida avulsa');
+  $('prerace-laps').textContent = kind === 'practice' ? 'livre' : RACE_LAPS;
+  $('prerace-length').textContent = `${Math.round(lengthOf(outline))} m`;
+  const best = loadNumber(KEYS.best(def.id));
+  $('prerace-best').textContent = best ? formatLapTime(best) : '—';
+  $('prerace-rivals').textContent = kind === 'practice' ? 'nenhum' : OPPONENTS.map((o) => o.name).join(', ');
+  showScreen('prerace');
+}
+
+function lengthOf(outline) {
+  let sum = 0;
+  for (let i = 0; i < outline.length; i++) {
+    const a = outline[i], b = outline[(i + 1) % outline.length];
+    sum += Math.hypot(b.x - a.x, b.z - a.z);
+  }
+  return sum;
+}
+
+$('prerace-go').onclick = () => startRace(pending.def, pending.kind);
+$('prerace-back').onclick = () => (pending?.kind === 'champ' ? openMenu() : openTrackPicker(pending.kind));
 
 // ---------------------------------------------------------------------------
 // Corrida
@@ -248,6 +301,8 @@ function startRace(def, kind) {
   track = def;
   const opponents = kind === 'practice' ? [] : OPPONENTS;
   trackInfo = world.loadTrack(def, opponents);
+  const canvas = $('minimap-canvas');
+  minimap = projectTrack(trackInfo.outline, canvas.width, 22);
   laps = new LapTimer(trackInfo.checkpoints, trackInfo.checkpointRadius, loadNumber(KEYS.best(def.id)));
   race = kind === 'practice' ? null : new Race({ track: trackInfo });
   world.placePlayer(race ? race.playerStartU : 0, 0);
@@ -488,7 +543,7 @@ function loop(now) {
   }
 
   sound.updateEngine(car.speedKmh, car.ceilingKmh, car.gear);
-  if (screen === null && source) renderHud(out, snapshot);
+  if (screen === null && source) renderHud(out, snapshot, res);
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
@@ -526,7 +581,47 @@ function handInfo(frame, side) {
 
 const HAND_LABEL = { open: 'aberta', partial: 'freio', closed: 'punho' };
 
-function renderHud(out, snapshot) {
+/** Minimapa: traçado fixo com norte pra cima, seu carro em amarelo e os rivais nas cores deles. */
+function drawMinimap(res) {
+  if (!minimap) return;
+  const canvas = $('minimap-canvas');
+  const ctx = canvas.getContext('2d');
+  const { width: W } = canvas;
+  ctx.clearRect(0, 0, W, W);
+
+  const road = new Path2D(minimap.path);
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#4a4f57';
+  ctx.lineWidth = 16;
+  ctx.stroke(road);
+  ctx.strokeStyle = '#8a93a0';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 10]);
+  ctx.stroke(road);
+  ctx.setLineDash([]);
+
+  // largada
+  const [sx, sy] = minimap.project(trackInfo.outline[0].x, trackInfo.outline[0].z);
+  ctx.fillStyle = '#f5f5f5';
+  ctx.fillRect(sx - 7, sy - 7, 14, 14);
+
+  const dot = (x, z, color, r) => {
+    const [px, py] = minimap.project(x, z);
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#05070a';
+    ctx.stroke();
+  };
+  res.aiPositions.forEach((p, i) => dot(p.x, p.z, hex(OPPONENTS[i]?.color ?? 0xffffff), 9));
+  dot(res.x, res.z, '#ffd400', 11);
+}
+
+const hex = (n) => `#${n.toString(16).padStart(6, '0')}`;
+
+function renderHud(out, snapshot, res) {
   $('dash').hidden = world.getView() === 'cockpit';
   $('speed').textContent = Math.round(car.speedKmh);
   $('gear').textContent = car.gear;
@@ -555,6 +650,8 @@ function renderHud(out, snapshot) {
   } else {
     $('countdown').hidden = true;
   }
+
+  drawMinimap(res);
 
   if (source === 'camera' && lastFrame) {
     drawDebug($('cam-overlay').getContext('2d'), lastFrame);

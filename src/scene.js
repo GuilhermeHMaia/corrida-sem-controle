@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { resolveTreeCollision } from './logic.js';
 import { buildCockpit, EYE, LOOK } from './cockpit.js';
+import { outlineOf } from './map.js';
 
 const ROAD_HALF_WIDTH = 8;
 const SAMPLES = 900;
@@ -97,6 +98,7 @@ export function createWorld(canvas) {
       curvature: track.curvature,
       checkpoints,
       checkpointRadius: ROAD_HALF_WIDTH + 6,
+      outline: outlineOf(track.points, 140),
     };
   }
 
@@ -130,6 +132,7 @@ export function createWorld(canvas) {
 
     // adversários
     const bumpedAi = [];
+    const aiPositions = [];
     aiStates.forEach((ai, i) => {
       const mesh = aiCars[i];
       if (!mesh) return;
@@ -137,6 +140,7 @@ export function createWorld(canvas) {
       mesh.group.position.set(p.x, 0, p.z);
       mesh.group.rotation.y = p.heading;
       for (const w of mesh.wheels) w.rotation.x = state.wheelSpin;
+      aiPositions.push({ x: p.x, z: p.z });
       const d = Math.hypot(p.x - state.x, p.z - state.z);
       if (d < AI_HIT_DIST) {
         const nx = (state.x - p.x) / (d || 1), nz = (state.z - p.z) / (d || 1);
@@ -192,6 +196,7 @@ export function createWorld(canvas) {
       offTrack: near.distance > ROAD_HALF_WIDTH + 1,
       collided,
       bumpedAi,
+      aiPositions,
       x: state.x,
       z: state.z,
       u: near.index / track.points.length,
@@ -215,6 +220,13 @@ export function createWorld(canvas) {
   return {
     loadTrack, placePlayer, step, setView, getView: () => view, setSeatOffset, getSeatOffset: () => seatOffset,
   };
+}
+
+/** Traçado de uma pista sem montar a cena — usado pelos mapas do menu. */
+export function trackOutline(def, count = 140) {
+  const ctrl = def.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
+  const curve = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal');
+  return outlineOf(curve.getSpacedPoints(count), count);
 }
 
 /** Ponto do traçado em u (0..1), com deslocamento lateral opcional. */

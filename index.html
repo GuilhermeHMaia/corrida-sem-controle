@@ -86,6 +86,15 @@
   #lap dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 6px 0 0; font-size: 13px; }
   #lap dt { color: #99a; }
   #lap dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+  .prerace-grid { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
+  #prerace-map { width: 220px; height: 220px; background: rgba(0,0,0,0.25); border-radius: 10px; }
+  dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 10px 0 0; font-size: 13px; }
+  dl.facts dt { color: #99a; }
+  dl.facts dd { margin: 0; }
+  .track-thumb { width: 54px; height: 54px; flex: none; background: rgba(0,0,0,0.25); border-radius: 8px; }
+
+  #minimap { position: absolute; top: 150px; right: 12px; padding: 6px; line-height: 0; }
+  #minimap canvas { width: 150px; height: 150px; }
   #standings { position: absolute; top: 12px; right: 12px; padding: 8px 10px; min-width: 190px; }
   #standings .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 2px 0; }
   #standings .row.me { color: #ffd400; font-weight: 700; }
@@ -94,7 +103,7 @@
   #position .big { font-size: 40px; font-weight: 900; line-height: 1; }
 
   #debug { position: fixed; top: 12px; right: 12px; width: 240px; padding: 8px; z-index: 3; }
-  #debug.with-standings { top: 150px; }
+  #debug.with-standings { top: 330px; }
   .cam-wrap { position: relative; width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: #000; }
   .cam-wrap video, .cam-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); }
   #debug dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 2px; font-size: 12px; }
@@ -115,7 +124,10 @@
     #toast { top: 214px; }
     #dash { transform: translateX(-50%) scale(0.78); transform-origin: bottom center; }
     #standings { top: auto; bottom: 12px; right: 12px; }
+    #minimap { top: auto; bottom: 120px; right: 12px; }
+    #minimap canvas { width: 110px; height: 110px; }
     #debug { display: none; }
+    .prerace-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -176,6 +188,30 @@
   </div>
 </div>
 
+<!-- prévia da pista, antes de largar -->
+<div id="prerace" class="screen" hidden>
+  <div class="panel">
+    <h1 id="prerace-name">Pista</h1>
+    <div class="prerace-grid">
+      <svg id="prerace-map" viewBox="0 0 220 220" aria-label="mapa da pista"></svg>
+      <div>
+        <p id="prerace-desc"></p>
+        <dl class="facts">
+          <dt>Corrida</dt><dd id="prerace-race">—</dd>
+          <dt>Voltas</dt><dd id="prerace-laps">3</dd>
+          <dt>Extensão</dt><dd id="prerace-length">—</dd>
+          <dt>Sua melhor volta</dt><dd id="prerace-best">—</dd>
+          <dt>Adversários</dt><dd id="prerace-rivals">—</dd>
+        </dl>
+      </div>
+    </div>
+    <div class="buttons">
+      <button id="prerace-go">Largar</button>
+      <button id="prerace-back" class="secondary">Voltar</button>
+    </div>
+  </div>
+</div>
+
 <!-- resultado da corrida -->
 <div id="results" class="screen" hidden>
   <div class="panel">
@@ -223,6 +259,7 @@
     </dl>
   </div>
   <div id="standings" class="panel" hidden></div>
+  <div id="minimap" class="panel"><canvas id="minimap-canvas" width="300" height="300"></canvas></div>
   <div id="position" class="panel" hidden>
     <div class="unit">posição</div>
     <div class="big"><span id="pos-num">4</span><span class="unit">/4</span></div>
