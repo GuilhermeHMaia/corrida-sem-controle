@@ -5,13 +5,19 @@ export class Sound {
   constructor() {
     this.ctx = null;
     this.muted = false;
+    this.volume = 0.6;
+  }
+
+  setVolume(v) {
+    this.volume = Math.max(0, Math.min(1, v));
+    if (this.ctx && !this.muted) this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.05);
   }
 
   start() {
     if (this.ctx) return;
     const ctx = (this.ctx = new AudioContext());
     this.master = ctx.createGain();
-    this.master.gain.value = 0.6;
+    this.master.gain.value = this.muted ? 0 : this.volume;
     this.master.connect(ctx.destination);
 
     // motor: dente-de-serra + quadrada uma oitava abaixo, passando por passa-baixa
@@ -42,7 +48,7 @@ export class Sound {
 
   toggleMute() {
     this.muted = !this.muted;
-    if (this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.6, this.ctx.currentTime, 0.05);
+    if (this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime, 0.05);
     return this.muted;
   }
 

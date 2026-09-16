@@ -1,4 +1,4 @@
-// Cena 3D: pista em circuito, cenário, carro e câmeras (cockpit e perseguição).
+// Cena 3D: pistas do campeonato, cenário, carros (jogador + adversários) e câmeras.
 import * as THREE from 'three';
 import { resolveTreeCollision } from './logic.js';
 import { buildCockpit, EYE, LOOK } from './cockpit.js';
@@ -7,6 +7,7 @@ const ROAD_HALF_WIDTH = 8;
 const SAMPLES = 900;
 const CHECKPOINTS = 6; // índice 0 = largada/chegada
 const CAR_RADIUS = 1.6;
+const AI_HIT_DIST = 3.4;
 
 export function createWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -14,9 +15,6 @@ export function createWorld(canvas) {
   renderer.shadowMap.enabled = true;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x9fd3ff);
-  scene.fog = new THREE.Fog(0x9fd3ff, 120, 650);
-
   const camera = new THREE.PerspectiveCamera(65, 1, 0.05, 2000);
 
   scene.add(new THREE.HemisphereLight(0xdff1ff, 0x4a6b3a, 1.1));
@@ -35,23 +33,16 @@ export function createWorld(canvas) {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  const track = buildTrack();
-  scene.add(track.mesh, track.lines);
-  const forest = buildTrees(track.points);
-  scene.add(forest.group);
-
-  const checkpoints = [];
-  for (let i = 0; i < CHECKPOINTS; i++) {
-    const p = track.curve.getPointAt(i / CHECKPOINTS);
-    checkpoints.push({ x: p.x, z: p.z });
-  }
-  scene.add(buildStartLine(track.curve));
-
-  const car = buildCar();
+  const car = buildCar(0xd62828);
   scene.add(car.group);
   const cockpit = buildCockpit();
   car.group.add(cockpit.group);
   let view = 'cockpit'; // 'cockpit' | 'chase'
+
+  const aiCars = [];
+  let trackGroup = null;
+  let track = null;
+  let forest = { trees: [] };
 
   const onResize = () => {
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -62,17 +53,70 @@ export function createWorld(canvas) {
   addEventListener('resize', onResize);
   onResize();
 
-  // estado do carro no plano
-  const start = track.curve.getPointAt(0);
-  const tan = track.curve.getTangentAt(0);
-  const state = { x: start.x, z: start.z, heading: Math.atan2(tan.x, tan.z), wheelSpin: 0 };
-  camera.position.set(state.x - Math.sin(state.heading) * 10, 5, state.z - Math.cos(state.heading) * 10);
-
+  const state = { x: 0, z: 0, heading: 0, wheelSpin: 0 };
   const camTarget = new THREE.Vector3();
   let seatOffset = 0; // ajuste de altura do banco (↑/↓)
   let shakeTime = 0;
 
-  function step(dt, speedKmh, steerDeg, maxSteerDeg, cockpitInfo) {
+  /** Troca a pista: descarta a anterior, monta a nova e devolve os dados pra corrida. */
+  function loadTrack(def, opponents = []) {
+    if (trackGroup) {
+      scene.remove(trackGroup);
+      disposeTree(trackGroup);
+    }
+    trackGroup = new THREE.Group();
+    scene.add(trackGroup);
+
+    scene.background = new THREE.Color(def.sky);
+    scene.fog = new THREE.Fog(def.sky, 120, 650);
+    ground.material.color.setHex(def.ground);
+
+    track = buildTrack(def);
+    forest = buildTrees(track.points, def.tree);
+    trackGroup.add(track.mesh, track.lines, forest.group, buildStartLine(track.curve));
+
+    // adversários (reaproveita os carros já criados quando a pista troca)
+    while (aiCars.length < opponents.length) {
+      const c = buildCar(0xffffff);
+      scene.add(c.group);
+      aiCars.push(c);
+    }
+    aiCars.forEach((c, i) => {
+      c.group.visible = i < opponents.length;
+      if (opponents[i]) for (const m of c.shell) m.material.color.setHex(opponents[i].color ?? 0xffffff);
+    });
+
+    const checkpoints = [];
+    for (let i = 0; i < CHECKPOINTS; i++) {
+      const p = track.curve.getPointAt(i / CHECKPOINTS);
+      checkpoints.push({ x: p.x, z: p.z });
+    }
+
+    return {
+      length: track.length,
+      curvature: track.curvature,
+      checkpoints,
+      checkpointRadius: ROAD_HALF_WIDTH + 6,
+    };
+  }
+
+  /** Coloca o carro do jogador no grid (u = posição na volta, lane = deslocamento lateral). */
+  function placePlayer(u, lane = 0) {
+    const p = pointAt(track, u, lane);
+    state.x = p.x;
+    state.z = p.z;
+    state.heading = p.heading;
+    state.wheelSpin = 0;
+    car.group.position.set(state.x, 0, state.z);
+    car.group.rotation.set(0, state.heading, 0);
+    camera.position.set(state.x - Math.sin(state.heading) * 9, 3.6, state.z - Math.cos(state.heading) * 9);
+  }
+
+  function step(dt, speedKmh, steerDeg, maxSteerDeg, cockpitInfo, aiStates = []) {
+    if (!track) {
+      renderer.render(scene, camera);
+      return null;
+    }
     const v = speedKmh / 3.6;
     const steerNorm = steerDeg / maxSteerDeg;
     // arcade: vira pouco parado (mas o suficiente pra desencostar de uma árvore),
@@ -83,6 +127,24 @@ export function createWorld(canvas) {
     state.z += Math.cos(state.heading) * v * dt;
     state.wheelSpin += (v / 0.4) * dt;
     const collided = resolveTreeCollision(state, forest.trees, CAR_RADIUS);
+
+    // adversários
+    const bumpedAi = [];
+    aiStates.forEach((ai, i) => {
+      const mesh = aiCars[i];
+      if (!mesh) return;
+      const p = pointAt(track, ai.u, ai.lane ?? 0);
+      mesh.group.position.set(p.x, 0, p.z);
+      mesh.group.rotation.y = p.heading;
+      for (const w of mesh.wheels) w.rotation.x = state.wheelSpin;
+      const d = Math.hypot(p.x - state.x, p.z - state.z);
+      if (d < AI_HIT_DIST) {
+        const nx = (state.x - p.x) / (d || 1), nz = (state.z - p.z) / (d || 1);
+        state.x = p.x + nx * AI_HIT_DIST;
+        state.z = p.z + nz * AI_HIT_DIST;
+        bumpedAi.push(i);
+      }
+    });
 
     car.group.position.set(state.x, 0, state.z);
     car.group.rotation.y = state.heading;
@@ -125,11 +187,14 @@ export function createWorld(canvas) {
     sun.target.position.set(state.x, 0, state.z);
 
     renderer.render(scene, camera);
+    const near = nearestSample(track.points, state.x, state.z);
     return {
-      offTrack: distanceToTrack(track.points, state.x, state.z) > ROAD_HALF_WIDTH + 1,
+      offTrack: near.distance > ROAD_HALF_WIDTH + 1,
       collided,
+      bumpedAi,
       x: state.x,
       z: state.z,
+      u: near.index / track.points.length,
     };
   }
 
@@ -148,8 +213,23 @@ export function createWorld(canvas) {
   }
 
   return {
-    step, setView, getView: () => view, setSeatOffset, getSeatOffset: () => seatOffset,
-    checkpoints, checkpointRadius: ROAD_HALF_WIDTH + 6,
+    loadTrack, placePlayer, step, setView, getView: () => view, setSeatOffset, getSeatOffset: () => seatOffset,
+  };
+}
+
+/** Ponto do traçado em u (0..1), com deslocamento lateral opcional. */
+function pointAt(track, u, lane = 0) {
+  const pts = track.points;
+  const n = pts.length;
+  const i = ((Math.floor(u * n) % n) + n) % n;
+  const p = pts[i];
+  const q = pts[(i + 1) % n];
+  const dx = q.x - p.x, dz = q.z - p.z;
+  const len = Math.hypot(dx, dz) || 1;
+  return {
+    x: p.x + (-dz / len) * lane,
+    z: p.z + (dx / len) * lane,
+    heading: Math.atan2(dx, dz),
   };
 }
 
@@ -198,11 +278,8 @@ function buildStartLine(curve) {
   return group;
 }
 
-function buildTrack() {
-  const ctrl = [
-    [0, 0], [180, -20], [320, 60], [360, 220], [260, 330], [120, 290],
-    [60, 400], [-120, 420], [-260, 300], [-240, 140], [-120, 90], [-160, -60],
-  ].map(([x, z]) => new THREE.Vector3(x, 0, z));
+function buildTrack(def) {
+  const ctrl = def.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
   const curve = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal');
   const points = curve.getSpacedPoints(SAMPLES);
 
@@ -237,26 +314,65 @@ function buildTrack() {
   lg.setAttribute('position', new THREE.Float32BufferAttribute(dashes, 3));
   const lines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0xf5f5f5 }));
 
-  return { curve, points: points.slice(0, SAMPLES), mesh, lines };
+  const sampled = points.slice(0, SAMPLES);
+  return {
+    curve,
+    points: sampled,
+    mesh,
+    lines,
+    length: curve.getLength(),
+    curvature: curvatureOf(sampled, curve.getLength() / SAMPLES),
+  };
 }
 
-function buildTrees(points) {
+/** Curvatura por amostra (rad/m), suavizada — usada pelo ritmo dos adversários. */
+function curvatureOf(points, stepLen) {
+  const n = points.length;
+  const raw = points.map((p, i) => {
+    const a = points[(i - 3 + n) % n], b = points[(i + 3) % n];
+    const h1 = Math.atan2(p.x - a.x, p.z - a.z);
+    const h2 = Math.atan2(b.x - p.x, b.z - p.z);
+    let d = h2 - h1;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    return Math.abs(d) / (stepLen * 6);
+  });
+  // média móvel pra não oscilar entre amostras vizinhas
+  return raw.map((_, i) => {
+    let sum = 0;
+    for (let k = -8; k <= 8; k++) sum += raw[(i + k + n) % n];
+    return sum / 17;
+  });
+}
+
+function buildTrees(points, spec = {}) {
+  const { trunk = 0x6b4a2b, leaf = 0x2f6b34, count = 420 } = spec;
   const group = new THREE.Group();
   const trunkGeo = new THREE.CylinderGeometry(0.4, 0.5, 3, 6);
   const leafGeo = new THREE.ConeGeometry(2.6, 7, 7);
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2b });
-  const leafMat = new THREE.MeshLambertMaterial({ color: 0x2f6b34 });
-  const COUNT = 420;
-  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, COUNT);
-  const leaves = new THREE.InstancedMesh(leafGeo, leafMat, COUNT);
+  const trunkMat = new THREE.MeshLambertMaterial({ color: trunk });
+  const leafMat = new THREE.MeshLambertMaterial({ color: leaf });
+  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, count);
+  const leaves = new THREE.InstancedMesh(leafGeo, leafMat, count);
   trunks.castShadow = leaves.castShadow = true;
+
+  // área de espalhamento: caixa do traçado com folga
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+  }
+  minX -= 120; maxX += 120; minZ -= 120; maxZ += 120;
+
   const m = new THREE.Matrix4();
   let rnd = 12345;
   const rand = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647);
   const trees = [];
-  while (trees.length < COUNT) {
-    const x = -500 + rand() * 1100, z = -250 + rand() * 900;
-    if (distanceToTrack(points, x, z) < ROAD_HALF_WIDTH + 6) continue;
+  let tries = 0;
+  while (trees.length < count && tries < count * 40) {
+    tries++;
+    const x = minX + rand() * (maxX - minX), z = minZ + rand() * (maxZ - minZ);
+    if (nearestSample(points, x, z).distance < ROAD_HALF_WIDTH + 6) continue;
     const s = 0.7 + rand() * 0.8;
     m.makeScale(s, s, s).setPosition(x, 1.5 * s, z);
     trunks.setMatrixAt(trees.length, m);
@@ -264,13 +380,14 @@ function buildTrees(points) {
     leaves.setMatrixAt(trees.length, m);
     trees.push({ x, z, r: 0.6 * s }); // só o tronco colide; a copa fica acima do carro
   }
+  trunks.count = leaves.count = trees.length;
   group.add(trunks, leaves);
   return { group, trees };
 }
 
-function buildCar() {
+function buildCar(color) {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2, 0.7, 4.2), new THREE.MeshLambertMaterial({ color: 0xd62828 }));
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2, 0.7, 4.2), new THREE.MeshLambertMaterial({ color }));
   body.position.y = 0.75;
   const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.6, 2), new THREE.MeshLambertMaterial({ color: 0x1d1d24 }));
   cabin.position.set(0, 1.35, -0.3);
@@ -293,14 +410,24 @@ function buildCar() {
     wheels.push(w);
     if (front) frontPivots.push(pivot);
   }
-  return { group, wheels, frontPivots, shell: [body, cabin, spoiler] };
+  // só a carroceria muda de cor (o body é o primeiro da lista)
+  return { group, wheels, frontPivots, shell: [body], parts: [body, cabin, spoiler] };
 }
 
-function distanceToTrack(points, x, z) {
-  let best = Infinity;
+function nearestSample(points, x, z) {
+  let best = Infinity, index = 0;
   for (let i = 0; i < points.length; i += 3) {
     const d = (points[i].x - x) ** 2 + (points[i].z - z) ** 2;
-    if (d < best) best = d;
+    if (d < best) { best = d; index = i; }
   }
-  return Math.sqrt(best);
+  return { distance: Math.sqrt(best), index };
+}
+
+function disposeTree(root) {
+  root.traverse((o) => {
+    o.geometry?.dispose?.();
+    const m = o.material;
+    if (Array.isArray(m)) m.forEach((x) => x.dispose?.());
+    else m?.dispose?.();
+  });
 }

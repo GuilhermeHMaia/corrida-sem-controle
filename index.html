@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Volante Gestual</title>
+<title>Corrida sem Controle</title>
 <script type="importmap">
   { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
 </script>
@@ -14,25 +14,49 @@
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   [hidden] { display: none !important; }
 
-  .panel { background: rgba(12, 14, 20, 0.72); border: 1px solid rgba(255,255,255,0.12);
+  .panel { background: rgba(12, 14, 20, 0.78); border: 1px solid rgba(255,255,255,0.12);
     border-radius: 12px; backdrop-filter: blur(6px); }
-
-  #start { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.45); }
-  #start .panel { padding: 28px 32px; max-width: 520px; }
-  #start h1 { margin: 0 0 8px; font-size: 28px; }
-  #start p { margin: 6px 0; color: #cfd3da; line-height: 1.45; font-size: 14px; }
-  #start .buttons { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
   button { font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 8px; border: 0; cursor: pointer;
     background: #ffd400; color: #111; }
   button.secondary { background: #2b2f38; color: #fff; }
-  #start-status { min-height: 1.4em; color: #ffd400 !important; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  kbd { background: #2b2f38; border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 12px; }
+  h1 { margin: 0 0 8px; font-size: 26px; }
+  h2 { margin: 0 0 10px; font-size: 19px; }
+  .unit, .muted { color: #99a; font-size: 12px; }
 
-  #hud { position: fixed; inset: 0; pointer-events: none; }
+  /* ---- telas ---- */
+  .screen { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.5);
+    padding: 16px; overflow: auto; z-index: 5; }
+  .screen .panel { padding: 24px 28px; max-width: 560px; width: 100%; }
+  .screen p { margin: 6px 0; color: #cfd3da; line-height: 1.45; font-size: 14px; }
+  .buttons { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  #start-status { min-height: 1.3em; color: #ffd400; }
+
+  .menu-item { display: flex; gap: 12px; align-items: center; justify-content: space-between;
+    padding: 10px 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; margin-bottom: 8px; }
+  .menu-item .t { font-weight: 700; }
+  .menu-item .d { color: #99a; font-size: 12px; }
+  #track-list { display: grid; gap: 8px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  th { color: #99a; font-weight: 600; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.me td { color: #ffd400; font-weight: 700; }
+
+  /* ---- ajustes ---- */
+  #ajustes .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 12px 0 4px; }
+  #ajustes input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: #ffd400; }
+  #ajustes .val { font-variant-numeric: tabular-nums; color: #ffd400; font-weight: 700; }
+  #ajustes .hint { color: #99a; font-size: 12px; margin: 0; }
+
+  /* ---- HUD ---- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
   #dash { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; gap: 14px;
     align-items: stretch; padding: 12px 16px; }
   .speed-box { min-width: 150px; }
   #speed { font-size: 52px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-  .unit { color: #aab; font-size: 13px; }
   .bar { height: 6px; background: #2b2f38; border-radius: 3px; overflow: hidden; margin-top: 6px; }
   .bar > div { height: 100%; width: 0; }
   #rpm-fill { background: linear-gradient(90deg, #3ddc84, #ffd400 75%, #ff5252); }
@@ -43,6 +67,7 @@
   #gear { font-size: 52px; font-weight: 800; line-height: 1; }
   #wheel-box { display: grid; place-items: center; width: 80px; }
   #wheel { width: 64px; height: 64px; transition: transform 0.05s linear; }
+
   #mode { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); padding: 6px 14px;
     font-weight: 700; font-size: 15px; }
   #mode[data-mode="brake"] { color: #ff5252; }
@@ -52,21 +77,24 @@
     font-weight: 700; font-size: 14px; }
   #toast { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); padding: 8px 18px;
     font-weight: 800; font-size: 20px; color: #ffd400; white-space: nowrap; }
+  #countdown { position: absolute; top: 34%; left: 50%; transform: translateX(-50%); font-size: 96px;
+    font-weight: 900; color: #ffd400; text-shadow: 0 4px 24px #000; }
 
-  #lap { position: absolute; top: 12px; left: 12px; padding: 10px 14px; min-width: 190px; }
+  #lap { position: absolute; top: 12px; left: 12px; padding: 10px 14px; min-width: 200px; }
   #lap .lap-title { color: #99a; font-size: 12px; }
-  #lap-current { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  #lap-current { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.15; }
   #lap dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 6px 0 0; font-size: 13px; }
   #lap dt { color: #99a; }
   #lap dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
-  @media (max-width: 720px) {
-    #mode { top: 150px; }
-    #offtrack { top: 190px; }
-    #toast { top: 220px; }
-    #dash { transform: translateX(-50%) scale(0.8); transform-origin: bottom center; }
-  }
+  #standings { position: absolute; top: 12px; right: 12px; padding: 8px 10px; min-width: 190px; }
+  #standings .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 2px 0; }
+  #standings .row.me { color: #ffd400; font-weight: 700; }
+  #standings .pos { color: #99a; width: 18px; }
+  #position { position: absolute; bottom: 20px; left: 20px; padding: 10px 16px; text-align: center; }
+  #position .big { font-size: 40px; font-weight: 900; line-height: 1; }
 
-  #debug { position: fixed; top: 12px; right: 12px; width: 260px; padding: 8px; pointer-events: auto; }
+  #debug { position: fixed; top: 12px; right: 12px; width: 240px; padding: 8px; z-index: 3; }
+  #debug.with-standings { top: 150px; }
   .cam-wrap { position: relative; width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: #000; }
   .cam-wrap video, .cam-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); }
   #debug dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 2px; font-size: 12px; }
@@ -75,23 +103,31 @@
   #debug dd[data-state="open"] { color: #3ddc84; }
   #debug dd[data-state="partial"] { color: #ffb74d; }
   #debug dd[data-state="closed"] { color: #ff5252; }
-  #calibrate { width: 100%; padding: 7px; font-size: 13px; }
   #calib-msg { position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); padding: 16px 22px;
-    font-size: 20px; font-weight: 700; }
+    font-size: 20px; font-weight: 700; z-index: 4; }
 
-  #keyboard-help { position: fixed; bottom: 12px; left: 12px; padding: 10px 14px; font-size: 13px; line-height: 1.6; }
-  kbd { background: #2b2f38; border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 12px; }
+  #keyboard-help { position: fixed; bottom: 12px; right: 12px; padding: 10px 14px; font-size: 13px;
+    line-height: 1.6; z-index: 2; }
+
+  @media (max-width: 760px) {
+    #mode { top: 150px; }
+    #offtrack { top: 186px; }
+    #toast { top: 214px; }
+    #dash { transform: translateX(-50%) scale(0.78); transform-origin: bottom center; }
+    #standings { top: auto; bottom: 12px; right: 12px; }
+    #debug { display: none; }
+  }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 
-<div id="start">
+<!-- escolha do controle -->
+<div id="start" class="screen">
   <div class="panel">
-    <h1>Volante Gestual</h1>
-    <p>O carro acelera sozinho. Segure um volante imaginário com as duas mãos abertas pra virar.</p>
-    <p><b>Duas mãos fechando</b>: freio — a partir de ~70% fechadas freia leve, punho total freia tudo. <b>Só a direita em punho</b>: sobe marcha. <b>Só a esquerda em punho</b>: desce marcha. Reabra a mão pra trocar de novo.</p>
-    <p>Complete a volta passando pelos checkpoints. Na grama o teto de velocidade cai pela metade. <kbd>C</kbd> alterna visão de dentro/fora, <kbd>↑</kbd>/<kbd>↓</kbd> altura do banco, <kbd>M</kbd> liga/desliga o som.</p>
+    <h1>Corrida sem Controle</h1>
+    <p>Um campeonato de 4 corridas em que você dirige com as mãos no ar, sem controle nenhum.</p>
+    <p><b>Duas mãos abertas</b>: volante. <b>Duas mãos fechando</b>: freio (quanto mais fecha, mais freia). <b>Só a direita em punho</b>: sobe marcha. <b>Só a esquerda em punho</b>: desce marcha.</p>
     <div class="buttons">
       <button id="start-camera">Usar câmera</button>
       <button id="start-keyboard" class="secondary">Modo teclado</button>
@@ -100,18 +136,96 @@
   </div>
 </div>
 
+<!-- menu principal -->
+<div id="menu" class="screen" hidden>
+  <div class="panel">
+    <h1>Menu</h1>
+    <div class="menu-item">
+      <div><div class="t">Campeonato</div><div class="d" id="champ-status">4 corridas, 3 voltas cada</div></div>
+      <div class="buttons" style="margin:0">
+        <button id="btn-champ">Correr</button>
+        <button id="btn-champ-reset" class="secondary">Zerar</button>
+      </div>
+    </div>
+    <div class="menu-item">
+      <div><div class="t">Corrida avulsa</div><div class="d">Escolha uma pista e corra contra os 3 adversários</div></div>
+      <button id="btn-single" class="secondary">Escolher</button>
+    </div>
+    <div class="menu-item">
+      <div><div class="t">Treino livre</div><div class="d">Sozinho na pista, sem corrida nem contagem</div></div>
+      <button id="btn-practice" class="secondary">Escolher</button>
+    </div>
+    <div class="menu-item">
+      <div><div class="t">Ajustes</div><div class="d">Freio, punho, volante, banco e som — <kbd>A</kbd> a qualquer momento</div></div>
+      <button id="btn-ajustes" class="secondary">Abrir</button>
+    </div>
+    <div id="champ-table-wrap" hidden>
+      <h2 style="margin-top:18px">Classificação do campeonato</h2>
+      <table><thead><tr><th>#</th><th>Piloto</th><th class="num">Vitórias</th><th class="num">Pontos</th></tr></thead>
+        <tbody id="champ-table"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- escolha de pista -->
+<div id="tracks" class="screen" hidden>
+  <div class="panel">
+    <h1 id="tracks-title">Escolha a pista</h1>
+    <div id="track-list"></div>
+    <div class="buttons"><button id="tracks-back" class="secondary">Voltar</button></div>
+  </div>
+</div>
+
+<!-- resultado da corrida -->
+<div id="results" class="screen" hidden>
+  <div class="panel">
+    <h1 id="results-title">Resultado</h1>
+    <table><thead><tr><th>#</th><th>Piloto</th><th class="num">Tempo</th><th class="num">Pontos</th></tr></thead>
+      <tbody id="results-table"></tbody></table>
+    <div id="results-champ" hidden>
+      <h2 style="margin-top:18px">Campeonato</h2>
+      <table><thead><tr><th>#</th><th>Piloto</th><th class="num">Vitórias</th><th class="num">Pontos</th></tr></thead>
+        <tbody id="results-champ-table"></tbody></table>
+    </div>
+    <div class="buttons">
+      <button id="results-next">Próxima corrida</button>
+      <button id="results-menu" class="secondary">Menu</button>
+    </div>
+  </div>
+</div>
+
+<!-- ajustes -->
+<div id="ajustes" class="screen" hidden>
+  <div class="panel">
+    <h1>Ajustes</h1>
+    <p class="hint">Mexa enquanto joga: as mudanças valem na hora e ficam salvas.</p>
+    <div id="ajustes-list"></div>
+    <div class="buttons">
+      <button id="ajustes-close">Voltar ao jogo</button>
+      <button id="ajustes-calib" class="secondary">Calibrar mãos</button>
+      <button id="ajustes-reset" class="secondary">Restaurar padrão</button>
+    </div>
+  </div>
+</div>
+
 <div id="hud" hidden>
   <div id="mode" class="panel">Volante</div>
   <div id="offtrack">Fora da pista</div>
   <div id="toast" class="panel" hidden></div>
+  <div id="countdown" hidden>3</div>
   <div id="lap" class="panel">
-    <div class="lap-title">Volta <span id="lap-num">1</span></div>
+    <div class="lap-title" id="lap-header">Volta 1</div>
     <div id="lap-current">0:00.000</div>
     <dl>
       <dt>Melhor</dt><dd id="lap-best">--:--.---</dd>
       <dt>Última</dt><dd id="lap-last">--:--.---</dd>
       <dt>Checkpoints</dt><dd id="lap-cp">0/5</dd>
     </dl>
+  </div>
+  <div id="standings" class="panel" hidden></div>
+  <div id="position" class="panel" hidden>
+    <div class="unit">posição</div>
+    <div class="big"><span id="pos-num">4</span><span class="unit">/4</span></div>
   </div>
   <div id="dash" class="panel">
     <div class="speed-box">
@@ -146,18 +260,17 @@
     <dt>Ângulo</dt><dd id="dbg-angle">—</dd>
     <dt>Limiares</dt><dd id="dbg-thr">—</dd>
   </dl>
-  <button id="calibrate" class="secondary" hidden>Calibrar mãos</button>
 </div>
 <div id="calib-msg" class="panel" hidden></div>
 
 <div id="keyboard-help" class="panel" hidden>
   <kbd>←</kbd> <kbd>→</kbd> girar volante<br>
-  <kbd>Q</kbd> punho esquerdo (desce) · <kbd>A</kbd> esquerda 80%<br>
+  <kbd>Q</kbd> punho esquerdo (desce) · <kbd>Z</kbd> esquerda 80%<br>
   <kbd>P</kbd> punho direito (sobe) · <kbd>L</kbd> direita 80%<br>
-  <kbd>Q</kbd>+<kbd>P</kbd> freio total · <kbd>A</kbd>+<kbd>L</kbd> freio leve<br>
-  <kbd>H</kbd> simular mão fora do quadro<br>
-  <kbd>R</kbd> zerar carro · <kbd>M</kbd> som · <kbd>C</kbd> câmera<br>
-  <kbd>↑</kbd> <kbd>↓</kbd> altura do banco
+  <kbd>Q</kbd>+<kbd>P</kbd> freio total · <kbd>Z</kbd>+<kbd>L</kbd> freio leve<br>
+  <kbd>H</kbd> mão fora do quadro · <kbd>R</kbd> zerar carro<br>
+  <kbd>C</kbd> câmera · <kbd>M</kbd> som · <kbd>A</kbd> ajustes<br>
+  <kbd>↑</kbd> <kbd>↓</kbd> altura do banco · <kbd>Esc</kbd> menu
 </div>
 
 <script type="module" src="src/main.js"></script>

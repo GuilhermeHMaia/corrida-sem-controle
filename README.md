@@ -14,12 +14,29 @@ Abra `http://localhost:5190` no Chrome e escolha **Usar câmera** (ou **Modo tec
 
 > Precisa de internet na primeira carga (three.js, MediaPipe e o modelo de mãos vêm de CDN).
 
-## Objetivo
+## Modos
 
-Faça a volta mais rápida. A volta só conta passando pelos 5 checkpoints em ordem e voltando à largada. A melhor volta fica salva no navegador.
+No menu (`Esc` a qualquer momento):
 
+- **Campeonato** — 4 corridas, uma em cada pista, 3 voltas cada, contra 3 adversários. Pontos 10/7/5/3 por corrida e tabela acumulada; fica salvo, dá pra continuar depois ou zerar.
+- **Corrida avulsa** — escolha a pista e corra contra os mesmos 3 adversários.
+- **Treino livre** — sozinho na pista, sem contagem nem adversários.
+
+### Pistas
+
+| Pista | Perfil |
+|---|---|
+| Circuito do Lago | Equilibrada, uma reta boa e curvas médias |
+| Reta Grande | Reta enorme e uma curva de retorno fechada |
+| Serra | Curva atrás de curva, marchas baixas |
+| Anel Rápido | Curvas longas e abertas, quase tudo em 6ª |
+
+### Regras da pista
+
+- A volta só conta passando pelos 5 checkpoints em ordem e voltando à largada. A melhor volta de cada pista fica salva.
 - **Grama:** fora da pista o teto de velocidade da marcha cai pela metade.
-- **Árvores:** bater para o carro.
+- **Árvores:** bater para o carro. **Adversários:** o toque atrapalha os dois.
+- **Largada:** contagem de 3 segundos com o carro parado; você sai em último.
 - **Som:** motor acompanha a velocidade dentro da marcha, "clack" na troca, sinal nos checkpoints. `M` liga/desliga.
 
 ## Visão de dentro
@@ -47,23 +64,33 @@ O carro acelera sozinho até o teto da marcha atual.
 - Durante freio, troca ou mão fora do quadro, a direção fica travada no último ângulo.
 - **Calibre logo no início** (botão *Calibrar mãos* no painel da câmera): mãos abertas segurando o volante, depois punho totalmente fechado. O painel mostra o fechamento de cada mão em % (verde aberta, laranja zona de freio, vermelho punho).
 
-Modo teclado: `←`/`→` volante, `Q`/`P` punho esquerdo/direito, `A`/`L` mão esquerda/direita 80% fechada, `Q+P` freio total, `A+L` freio leve, `H` simula mão fora do quadro, `R` zera o carro, `M` som, `C` câmera, `↑`/`↓` altura do banco.
+Modo teclado: `←`/`→` volante, `Q`/`P` punho esquerdo/direito, `Z`/`L` mão esquerda/direita 80% fechada, `Q+P` freio total, `Z+L` freio leve, `H` simula mão fora do quadro, `R` zera o carro, `M` som, `C` câmera, `↑`/`↓` altura do banco, `A` ajustes, `Esc` menu.
 
-## Ajustes
+## Ajustes (tecla `A`)
 
-Tudo em `CONFIG` no topo de `src/logic.js`: tetos e taxas das marchas, força do freio, `brakeStart` (70%), `fullBrakeAt` (95%), `fist` (88%), fator da grama.
+Painel dentro do jogo, com efeito imediato e salvo no navegador:
+
+- **Freio começa com a mão fechada em** (padrão 70%) — suba se o freio dispara só de segurar o volante.
+- **Punho a partir de** (88%) — desça se o punho fechado não é reconhecido. Sempre fica pelo menos 5 pontos acima do freio.
+- **Força do freio** (70 km/h por segundo).
+- **Inclinação das mãos para esterço total** (45°) — menor deixa a direção mais sensível.
+- **Suavização do volante**, **altura do banco** e **volume**.
+
+O resto (tetos e taxas das marchas, `fullBrakeAt`, fator da grama) fica em `CONFIG`, no topo de `src/logic.js`. Para inspecionar no console, abra com `?debug=1` e use `window.__jogo`.
 
 ## Estrutura
 
 - `src/logic.js` — mãos, gestos, física, colisão, voltas (puro, testável)
+- `src/race.js` — adversários, classificação, largada e campeonato (puro, testável)
+- `src/tracks.js` — as 4 pistas (traçado e cenário)
 - `src/hands.js` — MediaPipe Hand Landmarker
-- `src/scene.js` — pista, largada, árvores, carro, câmeras
+- `src/scene.js` — pistas, largada, árvores, carros, câmeras
 - `src/cockpit.js` — interior, volante com display, borboletas, luvas
 - `src/sound.js` — sons sintetizados (Web Audio)
-- `src/main.js` — loop, HUD, calibração, teclado
+- `src/main.js` — menus, ajustes, loop, HUD, calibração, teclado
 
 ## Testes
 
 ```bash
-node --test tests/logic.test.mjs
+node --test tests/*.test.mjs
 ```
